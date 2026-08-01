@@ -5,12 +5,32 @@ import asyncio
 import importlib.util
 from dataclasses import dataclass
 
+from meshcore_control.protocol.constants import PACKET_NO_MORE_MSGS
+from meshcore_control.protocol.decoder import (
+    DecodeError,
+    decode_channel_info,
+    decode_channel_text_message,
+    decode_device_info,
+    decode_self_info,
+    packet_type,
+)
+from meshcore_control.protocol.encoder import (
+    encode_app_start,
+    encode_device_query,
+    encode_get_channel,
+    encode_send_channel_message,
+    encode_sync_next_message,
+)
+from meshcore_control.transport.meshcore_usb import MeshCoreUsbSession, MeshCoreUsbSettings
+
 
 @dataclass(frozen=True, slots=True)
 class SerialPortInfo:
     device: str
     description: str
     hwid: str
+    vid: int | None
+    pid: int | None
 
 
 def discover_python_support() -> dict[str, bool]:
@@ -28,59 +48,182 @@ def list_serial_ports() -> list[SerialPortInfo]:
     except ImportError:
         return []
     return [
-        SerialPortInfo(device=port.device, description=port.description, hwid=port.hwid)
+        SerialPortInfo(
+            device=port.device,
+            description=port.description,
+            hwid=port.hwid,
+            vid=port.vid,
+            pid=port.pid,
+        )
         for port in list_ports.comports()
     ]
 
 
-async def read_serial_probe(port: str, baudrate: int, seconds: float) -> bytes:
+async def inspect_port(port: str, baudrate: int, channel_index: int) -> int:
+    session = MeshCoreUsbSession(
+        MeshCoreUsbSettings(port=port, baudrate=baudrate, channel_index=channel_index)
+    )
     try:
-        import serial
-    except ImportError as exc:
-        raise RuntimeError("pyserial is required for serial probing") from exc
+        await session.connect()
+        self_info = decode_self_info(await session.command(encode_app_start(), expected={0x05}))
+        device_info = decode_device_info(
+            await session.command(encode_device_query(), expected={0x0D})
+        )
+        print("Companion:")
+        print(f"- public key: {_redact_id(self_info.public_key)}")
+        print(f"- name: {_redact_optional(self_info.name)}")
+        print(f"- firmware protocol: {device_info.firmware_version}")
+        print(f"- firmware build: {device_info.firmware_build or 'N/D'}")
+        print(f"- model: {device_info.model or 'N/D'}")
+        print(f"- version: {device_info.version or 'N/D'}")
+        print("Channels:")
+        max_channels = device_info.max_channels or 8
+        for index in range(max_channels):
+            try:
+                packet = await session.command(encode_get_channel(index), expected={0x12})
+                channel = decode_channel_info(packet)
+            except Exception as exc:
+                print(f"- {index}: ERROR {exc.__class__.__name__}")
+                continue
+            marker = " (configured admin channel)" if index == channel_index else ""
+            name = channel.name or "empty"
+            print(f"- {index}: {name}; secret={channel.secret_redacted}{marker}")
+        return 0
+    finally:
+        await session.close()
 
-    def _read() -> bytes:
-        with serial.Serial(port=port, baudrate=baudrate, timeout=seconds) as handle:
-            return bytes(handle.read(512))
 
-    return await asyncio.to_thread(_read)
+async def listen_port(
+    port: str,
+    baudrate: int,
+    channel_index: int,
+    seconds: float,
+    show_message_content: bool,
+) -> int:
+    session = MeshCoreUsbSession(
+        MeshCoreUsbSettings(port=port, baudrate=baudrate, channel_index=channel_index)
+    )
+    try:
+        await session.connect()
+        deadline = asyncio.get_running_loop().time() + seconds
+        print(f"Listening on channel {channel_index} for {seconds:g}s")
+        while asyncio.get_running_loop().time() < deadline:
+            try:
+                frame = await asyncio.wait_for(
+                    session.command(encode_sync_next_message(), expected={0x08, 0x0A, 0x11}),
+                    timeout=min(5.0, max(0.1, deadline - asyncio.get_running_loop().time())),
+                )
+            except TimeoutError:
+                continue
+            if packet_type(frame) == PACKET_NO_MORE_MSGS:
+                await asyncio.sleep(0.5)
+                continue
+            try:
+                message = decode_channel_text_message(frame)
+            except DecodeError as exc:
+                print(f"- unsupported packet: {exc}")
+                continue
+            if message.channel_index != channel_index:
+                print(f"- ignored channel {message.channel_index}")
+                continue
+            text = message.text if show_message_content else "<redacted>"
+            print(f"- channel={message.channel_index} ts={message.timestamp} text={text}")
+        return 0
+    finally:
+        await session.close()
+
+
+async def send_test(port: str, baudrate: int, channel_index: int, text: str) -> int:
+    session = MeshCoreUsbSession(
+        MeshCoreUsbSettings(port=port, baudrate=baudrate, channel_index=channel_index)
+    )
+    try:
+        await session.connect()
+        await session.command(
+            encode_send_channel_message(channel_index=channel_index, text=text),
+            expected={0x06},
+        )
+        print("Test message queued.")
+        return 0
+    finally:
+        await session.close()
+
+
+def _print_support_and_ports() -> None:
+    print("Python support:")
+    for name, available in discover_python_support().items():
+        print(f"- {name}: {'yes' if available else 'no'}")
+    print("Serial ports:")
+    ports = list_serial_ports()
+    if not ports:
+        print("- none detected")
+    for port in ports:
+        vid_pid = _format_vid_pid(port.vid, port.pid)
+        print(f"- {port.device}: {port.description} ({port.hwid}) {vid_pid}")
+
+
+def _format_vid_pid(vid: int | None, pid: int | None) -> str:
+    if vid is None or pid is None:
+        return ""
+    return f"vid={vid:04x} pid={pid:04x}"
+
+
+def _redact_id(value: str) -> str:
+    if len(value) <= 12:
+        return value
+    return f"{value[:8]}...{value[-4:]}"
+
+
+def _redact_optional(value: str | None) -> str:
+    return "<redacted>" if value else "N/D"
 
 
 async def amain() -> int:
     parser = argparse.ArgumentParser(
-        description="Inspect possible MeshCore Companion connectivity without exposing secrets."
+        description="Inspect MeshCore Companion connectivity without exposing secrets."
     )
-    parser.add_argument("--port", help="Serial device to probe, e.g. /dev/ttyACM0")
-    parser.add_argument("--baudrate", type=int, default=115200)
-    parser.add_argument("--listen-seconds", type=float, default=5.0)
-    parser.add_argument("--channel-index", type=int, default=1)
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    subparsers.add_parser("list", help="List serial ports and Python support")
+
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Open a serial port and query Companion info",
+    )
+    inspect_parser.add_argument("--port", required=True)
+    inspect_parser.add_argument("--baudrate", type=int, default=115200)
+    inspect_parser.add_argument("--channel-index", type=int, default=1)
+
+    listen_parser = subparsers.add_parser("listen", help="Listen for queued channel messages")
+    listen_parser.add_argument("--port", required=True)
+    listen_parser.add_argument("--baudrate", type=int, default=115200)
+    listen_parser.add_argument("--channel-index", type=int, default=1)
+    listen_parser.add_argument("--seconds", type=float, default=30.0)
+    listen_parser.add_argument("--show-message-content", action="store_true")
+
+    send_parser = subparsers.add_parser("send-test", help="Send a test message explicitly")
+    send_parser.add_argument("--port", required=True)
+    send_parser.add_argument("--baudrate", type=int, default=115200)
+    send_parser.add_argument("--channel-index", type=int, default=1)
+    send_parser.add_argument("--text", required=True)
+
     args = parser.parse_args()
-
-    print("MeshCore Companion diagnostic")
-    print(f"Configured admin channel index: {args.channel_index}")
-    print("Python support:")
-    for name, available in discover_python_support().items():
-        print(f"- {name}: {'yes' if available else 'no'}")
-
-    ports = list_serial_ports()
-    print("Serial ports:")
-    if not ports:
-        print("- none detected")
-    for port in ports:
-        print(f"- {port.device}: {port.description} ({port.hwid})")
-
-    print("Companion protocol:")
-    print("- channel enumeration: not available until MeshCore protocol/library is confirmed")
-    print("- message receive/send: not available until MeshCore protocol/library is confirmed")
-
-    if args.port:
-        print(f"Listening for raw serial bytes on {args.port} for {args.listen_seconds:g}s")
-        data = await read_serial_probe(args.port, args.baudrate, args.listen_seconds)
-        if data:
-            print(f"Read {len(data)} raw bytes. Hex preview: {data[:64].hex()}")
-        else:
-            print("No raw bytes received.")
-    return 0
+    if args.command == "list":
+        _print_support_and_ports()
+        return 0
+    if args.command == "inspect":
+        return await inspect_port(args.port, args.baudrate, args.channel_index)
+    if args.command == "listen":
+        return await listen_port(
+            args.port,
+            args.baudrate,
+            args.channel_index,
+            args.seconds,
+            args.show_message_content,
+        )
+    if args.command == "send-test":
+        return await send_test(args.port, args.baudrate, args.channel_index, args.text)
+    raise AssertionError(f"unknown command {args.command}")
 
 
 def main() -> None:
