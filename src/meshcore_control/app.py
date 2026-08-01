@@ -3,6 +3,7 @@ from __future__ import annotations
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.models import InboundMessage, OutboundMessage
 from meshcore_control.security.deduplication import Deduplicator
+from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.transport.base import Transport
 
 
@@ -13,11 +14,13 @@ class BridgeService:
         transport: Transport,
         router: CommandRouter,
         deduplicator: Deduplicator,
+        rate_limiter: RateLimiter | None = None,
         channel_index: int,
     ) -> None:
         self.transport = transport
         self.router = router
         self.deduplicator = deduplicator
+        self.rate_limiter = rate_limiter or RateLimiter()
         self.channel_index = channel_index
 
     async def process_message(self, message: InboundMessage) -> OutboundMessage | None:
@@ -25,6 +28,15 @@ class BridgeService:
             return None
         if self.deduplicator.seen_or_store(message):
             return None
+        if not self.rate_limiter.allow(message.sender_id):
+            outbound = OutboundMessage(
+                destination=message.sender_id,
+                channel_index=self.channel_index,
+                text="Rate limit.",
+                reply_to=message.message_id,
+            )
+            await self.transport.send(outbound)
+            return outbound
         response_text = await self.router.handle(message)
         if response_text is None:
             return None
