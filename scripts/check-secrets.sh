@@ -5,6 +5,10 @@ ROOT="${CHECK_SECRETS_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}
 cd "$ROOT"
 
 found=0
+inside_git=0
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  inside_git=1
+fi
 
 report() {
   local file="$1"
@@ -16,6 +20,9 @@ report() {
 
 is_excluded_file() {
   local file="$1"
+  if [[ "$inside_git" -eq 1 ]] && git check-ignore -q -- "$file"; then
+    return 0
+  fi
   case "$file" in
     ./.git/*|./.venv/*|./venv/*|./env/*|./.mypy_cache/*|./.ruff_cache/*|./.pytest_cache/*)
       return 0
