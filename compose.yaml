@@ -1,0 +1,12 @@
+services:
+  meshcore-control-bridge:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ./data:/app/data
+    # Add a serial device only after `meshcore-diagnose` confirms the real path.
+    # devices:
+    #   - /dev/ttyUSB0:/dev/ttyUSB0

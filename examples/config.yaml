@@ -1,0 +1,23 @@
+# Safe example only. Do not commit a real config.yaml.
+command_prefix: "!"
+database_path: "data/audit.db"
+deduplication_window_seconds: 300
+audit_retention_days: 30
+
+meshcore:
+  # Channel 0/Public must not be used for administration.
+  channel_index: 1
+  serial_port: null
+  baudrate: 115200
+
+homeassistant:
+  base_url: http://homeassistant.local:8123
+  # Prefer HA_TOKEN in the environment.
+  token: ""
+  verify_tls: true
+  timeout_seconds: 5
+
+users:
+  "meshcore-public-key-or-stable-node-id":
+    name: "admin-device"
+    role: "admin"

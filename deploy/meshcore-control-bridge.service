@@ -1,0 +1,24 @@
+[Unit]
+Description=MeshCore Control Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=meshcore-bridge
+Group=meshcore-bridge
+WorkingDirectory=/opt/meshcore-control-bridge
+EnvironmentFile=/etc/meshcore-control-bridge.env
+ExecStart=/opt/meshcore-control-bridge/.venv/bin/meshcore-control-bridge --config /etc/meshcore-control-bridge.yaml
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/meshcore-control-bridge
+# Serial access may require adding meshcore-bridge to dialout or the host's
+# equivalent serial-device group.
+
+[Install]
+WantedBy=multi-user.target

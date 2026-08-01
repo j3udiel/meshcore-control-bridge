@@ -1,0 +1,33 @@
+command_prefix: "!"
+database_path: "data/audit.db"
+deduplication_window_seconds: 300
+audit_retention_days: 30
+
+meshcore:
+  # Do not use channel 0/Public for administrative commands.
+  channel_index: 1
+  serial_port: null
+  baudrate: 115200
+
+homeassistant:
+  # Prefer a local URL so the bridge works when Internet or public DNS is down.
+  base_url: http://homeassistant.local:8123
+  # Prefer HA_TOKEN in the environment. Do not commit real tokens.
+  token: ""
+  verify_tls: true
+  timeout_seconds: 5
+
+users:
+  # Use a stable public key or node ID. Do not trust display names as authentication.
+  "meshcore-public-key-or-stable-node-id":
+    name: "admin-device"
+    role: "admin"
+
+entities:
+  all: {}
+  lights:
+    salon: "light.salon"
+    cocina: "light.cocina"
+    despacho: "light.despacho"
+
+servers: {}
