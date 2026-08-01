@@ -17,6 +17,7 @@ class HomeAssistantConfig:
     token: str
     verify_tls: bool = True
     timeout_seconds: float = 5.0
+    websocket_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,7 @@ class MeshCoreConfig:
     event_types: tuple[str, ...] = ("meshcore_message",)
     require_stable_sender: bool = True
     allow_channel_without_sender: bool = False
+    healthcheck_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +112,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         token=os.getenv("HA_TOKEN", ha_data.get("token", "")),
         verify_tls=_env_bool("HA_VERIFY_TLS", ha_data.get("verify_tls", True)),
         timeout_seconds=_env_float("HA_TIMEOUT_SECONDS", ha_data.get("timeout_seconds", 5.0)),
+        websocket_url=os.getenv("HA_WEBSOCKET_URL", ha_data.get("websocket_url")),
     )
     config = AppConfig(
         command_prefix=os.getenv("COMMAND_PREFIX", file_data.get("command_prefix", "!")),

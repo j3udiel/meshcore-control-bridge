@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from meshcore_control.adapters.homeassistant_ws import (
@@ -26,11 +28,13 @@ class HomeAssistantMeshCoreSettings:
     ha_token: str
     ha_verify_tls: bool = True
     ha_timeout_seconds: float = 10.0
+    ha_websocket_url: str | None = None
     ha_entry_id: str | None = None
     event_types: tuple[str, ...] = (MESHCORE_MESSAGE_EVENT,)
     require_stable_sender: bool = True
     allow_channel_without_sender: bool = False
     max_message_bytes: int = 262_144
+    healthcheck_path: str | None = None
 
 
 class HomeAssistantMeshCoreTransport:
@@ -49,10 +53,15 @@ class HomeAssistantMeshCoreTransport:
             verify_tls=settings.ha_verify_tls,
             timeout_seconds=settings.ha_timeout_seconds,
             max_message_bytes=settings.max_message_bytes,
+            websocket_url_override=settings.ha_websocket_url,
         )
         self._event_iterator: Any | None = None
+        self._resolved_entry_id: str | None = settings.ha_entry_id
+        if settings.healthcheck_path:
+            self.client.on_subscribed = self._mark_subscribed
 
     async def receive(self) -> InboundMessage:
+        await self._ensure_entry_id()
         while True:
             if self._event_iterator is None:
                 events = self.client.events(list(self.settings.event_types))
@@ -68,12 +77,13 @@ class HomeAssistantMeshCoreTransport:
                 return message
 
     async def send(self, message: OutboundMessage) -> None:
+        await self._ensure_entry_id()
         payload: dict[str, Any] = {
             "channel_idx": message.channel_index,
             "message": message.text,
         }
-        if self.settings.ha_entry_id:
-            payload["entry_id"] = self.settings.ha_entry_id
+        if self._resolved_entry_id:
+            payload["entry_id"] = self._resolved_entry_id
         await self.client.call_service(
             "meshcore",
             MESHCORE_SEND_CHANNEL_SERVICE,
@@ -83,6 +93,20 @@ class HomeAssistantMeshCoreTransport:
 
     async def close(self) -> None:
         self._event_iterator = None
+
+    async def _ensure_entry_id(self) -> None:
+        if self._resolved_entry_id:
+            return
+        entries = await self.client.get_config_entries()
+        meshcore_entries = [entry for entry in entries if entry.get("domain") == "meshcore"]
+        if len(meshcore_entries) == 1:
+            entry_id = meshcore_entries[0].get("entry_id")
+            if isinstance(entry_id, str) and entry_id:
+                self._resolved_entry_id = entry_id
+                return
+        if len(meshcore_entries) > 1:
+            raise RuntimeError("multiple MeshCore config entries found; set meshcore_entry_id")
+        self._resolved_entry_id = None
 
     def _event_to_inbound(self, event: HomeAssistantEvent) -> InboundMessage | None:
         if event.event_type != MESHCORE_MESSAGE_EVENT:
@@ -153,6 +177,19 @@ class HomeAssistantMeshCoreTransport:
         )
         digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:16]
         return f"ha-meshcore:{digest}"
+
+    def _mark_subscribed(self) -> None:
+        if not self.settings.healthcheck_path:
+            return
+        payload = {
+            "status": "ok",
+            "websocket": "connected",
+            "subscription": "meshcore_message",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        path = Path(self.settings.healthcheck_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
 
 
 def _parse_time(value: str | None) -> datetime | None:

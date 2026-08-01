@@ -30,9 +30,13 @@ class HomeAssistantWebSocketClient:
     verify_tls: bool = True
     timeout_seconds: float = 10.0
     max_message_bytes: int = 262_144
+    websocket_url_override: str | None = None
+    on_subscribed: Any | None = None
     _message_id: int = field(default=0, init=False)
 
     def websocket_url(self) -> str:
+        if self.websocket_url_override:
+            return self.websocket_url_override
         parsed = urlparse(self.base_url.rstrip("/"))
         if parsed.scheme == "http":
             scheme = "ws"
@@ -62,6 +66,8 @@ class HomeAssistantWebSocketClient:
                     )
                     await self._expect_success(websocket, command_id)
                     subscriptions[command_id] = event_type
+                if self.on_subscribed is not None:
+                    self.on_subscribed()
 
                 while True:
                     payload = await self._recv_json(websocket)

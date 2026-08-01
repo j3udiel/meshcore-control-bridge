@@ -8,6 +8,7 @@ from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import Authorizer
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import AppConfig, load_config
+from meshcore_control.homeassistant_app import load_homeassistant_app_config
 from meshcore_control.logging import configure_logging
 from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
@@ -65,10 +66,12 @@ def _build_transport(config: AppConfig) -> Transport:
                 ha_token=config.homeassistant.token,
                 ha_verify_tls=config.homeassistant.verify_tls,
                 ha_timeout_seconds=config.homeassistant.timeout_seconds,
+                ha_websocket_url=config.homeassistant.websocket_url,
                 ha_entry_id=config.meshcore.ha_entry_id,
                 event_types=config.meshcore.event_types,
                 require_stable_sender=config.meshcore.require_stable_sender,
                 allow_channel_without_sender=config.meshcore.allow_channel_without_sender,
+                healthcheck_path=config.meshcore.healthcheck_path,
             )
         )
     if config.meshcore.transport == "usb":
@@ -83,10 +86,15 @@ async def amain() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument("--home-assistant-app", action="store_true")
     args = parser.parse_args()
 
-    configure_logging(args.log_level)
-    config = load_config(args.config)
+    if args.home_assistant_app:
+        config, options = load_homeassistant_app_config()
+        configure_logging(options.log_level.upper())
+    else:
+        configure_logging(args.log_level)
+        config = load_config(args.config)
     service = build_service(config)
     await service.run_forever()
 
