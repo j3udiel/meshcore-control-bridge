@@ -1,0 +1,11 @@
+configuration:
+  channel_index:
+    name: Channel index
+    description: Private MeshCore channel index. Public channel 0 is not allowed.
+  meshcore_entry_id:
+    name: MeshCore entry ID
+    description: Optional meshcore-ha config entry ID when multiple entries exist.
+  authorized_senders:
+    name: Authorized senders
+    description: Stable MeshCore public-key prefixes allowed to execute commands.
+

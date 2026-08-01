@@ -40,6 +40,7 @@ locally.
 - Replay attacks.
 - LoRa packet duplication.
 - Sender spoofing or unstable sender identity.
+- Channel text messages without stable sender identity.
 - Loss of channel secret.
 - Abuse of non-idempotent actions.
 - Log or database leakage.
@@ -55,6 +56,7 @@ locally.
 - Use registered commands only.
 - No shell, arbitrary SSH, `eval`, or `shell=True`.
 - Deduplicate messages by ID or time-window hash.
+- Rate limit commands per sender.
 - Store inbound message text as hashes in audit storage.
 - Keep secrets out of examples.
 - Provide a local secret-check script and CI step.
@@ -63,9 +65,9 @@ locally.
 
 - Real MeshCore transport validation.
 - Confirmation flow for sensitive actions.
-- Rate limiting.
 - Better audit retention cleanup.
 - Signed or authenticated payloads if supported by MeshCore.
+- A verified way to map MeshCore channel messages to stable sender identities.
 - Formal security review.
 - Fuzzing for command parsing and transport decoding.
 
@@ -79,6 +81,22 @@ must require confirmation.
 
 Visible node names are not trusted. Operators should use stable public keys or
 stable node identifiers, and should rotate configuration if a device is lost.
+
+The currently documented MeshCore channel text frames do not include a full
+stable sender ID. The experimental USB transport marks those messages with a
+synthetic `channel:<index>:unknown` sender and metadata showing that no stable
+sender was available. That synthetic ID is useful for diagnostics only and is
+not a per-user authentication mechanism.
+
+The Home Assistant transport improves this only when `meshcore-ha` emits a
+`pubkey_prefix` for the received message. Direct messages include it. Channel
+messages include it only if `meshcore-ha` can resolve the sender name to a known
+contact. If no stable identity is present, the transport ignores the message by
+default.
+
+In Home Assistant App mode, authentication to Home Assistant uses
+`SUPERVISOR_TOKEN` from the container environment. The token is not stored in
+`/data` and must not be printed in logs.
 
 ## Loss of Channel Secret
 

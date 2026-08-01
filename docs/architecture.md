@@ -23,6 +23,9 @@ instances. `FakeTransport` is implemented for tests. `MeshCoreTransport` exists
 as a placeholder and raises `NotImplementedError` until the real Companion
 protocol is confirmed.
 
+When deployed as a Home Assistant App, the same transport uses the Supervisor
+proxy and `SUPERVISOR_TOKEN` instead of a user-created Long-Lived Access Token.
+
 ## Command Router
 
 The router parses commands with the configured prefix, resolves aliases, checks

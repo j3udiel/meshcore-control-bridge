@@ -1,0 +1,42 @@
+name: MeshCore Control Bridge
+slug: meshcore_control_bridge
+description: Offline command bridge between MeshCore and Home Assistant
+version: 0.1.0
+startup: application
+boot: auto
+init: false
+homeassistant_api: true
+watchdog: true
+apparmor: meshcore-control-bridge
+arch:
+  - amd64
+  - aarch64
+options:
+  channel_index: 1
+  meshcore_entry_id: ""
+  command_prefix: "!"
+  authorized_senders: []
+  status_entities: []
+  rate_limit:
+    commands: 5
+    window_seconds: 60
+  log_level: info
+  allow_unidentified_readonly_testing: false
+schema:
+  channel_index: "int(1,255)"
+  meshcore_entry_id: "str?"
+  command_prefix: "str(1,4)"
+  authorized_senders:
+    - pubkey_prefix: "str(6,128)"
+      name: "str"
+      role: "list(readonly|home|operator|admin)"
+  status_entities:
+    - alias: "match(^[A-Za-z0-9_-]+$)"
+      entity_id: "str"
+      label: "str"
+  rate_limit:
+    commands: "int(1,100)"
+    window_seconds: "int(1,3600)"
+  log_level: "list(debug|info|warning|error)"
+  allow_unidentified_readonly_testing: bool
+

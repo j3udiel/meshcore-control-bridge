@@ -1,0 +1,10 @@
+configuration:
+  channel_index:
+    name: Indice de canal
+    description: Indice del canal privado MeshCore. El canal publico 0 no esta permitido.
+  meshcore_entry_id:
+    name: ID de entrada MeshCore
+    description: ID opcional de meshcore-ha cuando hay varias entradas configuradas.
+  authorized_senders:
+    name: Remitentes autorizados
+    description: Prefijos de clave publica MeshCore autorizados para ejecutar comandos.

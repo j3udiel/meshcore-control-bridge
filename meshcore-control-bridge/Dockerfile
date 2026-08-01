@@ -1,0 +1,26 @@
+ARG BUILD_FROM=ghcr.io/home-assistant/base:latest
+FROM ${BUILD_FROM}
+
+ARG BUILD_VERSION=0.1.0
+ARG BUILD_ARCH=amd64
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+WORKDIR /app
+
+LABEL \
+  io.hass.version="${BUILD_VERSION}" \
+  io.hass.type="app" \
+  io.hass.arch="${BUILD_ARCH}"
+
+RUN apk add --no-cache python3 py3-pip
+
+COPY package /app/package
+RUN pip3 install --break-system-packages --no-cache-dir /app/package
+
+COPY run.sh /run.sh
+RUN chmod a+x /run.sh
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD python3 -m meshcore_control.homeassistant_app_health
+
+CMD ["/run.sh"]
