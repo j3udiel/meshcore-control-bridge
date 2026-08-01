@@ -1,0 +1,23 @@
+name: meshcore-control-bridge
+version: "0.0.0"
+slug: meshcore_control_bridge
+description: Experimental MeshCore control bridge skeleton
+arch:
+  - amd64
+  - aarch64
+startup: services
+boot: auto
+init: false
+uart: true
+map:
+  - addon_config:rw
+  - addon_data:rw
+options:
+  meshcore_channel_index: 1
+  meshcore_serial_port: ""
+  homeassistant_base_url: "http://homeassistant.local:8123"
+schema:
+  meshcore_channel_index: int
+  meshcore_serial_port: str
+  homeassistant_base_url: str
+

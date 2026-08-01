@@ -15,14 +15,18 @@ versioning once releases begin.
 - Message deduplication.
 - SQLite audit storage.
 - Home Assistant availability client.
+- Read-only Home Assistant config and state calls.
 - `FakeTransport` for tests.
 - `!ping`.
 - `!help`.
 - `!estado`.
-- MeshCore diagnostic utility.
+- Experimental MeshCore USB frame codec and USB transport.
+- Expanded MeshCore diagnostic utility.
+- Per-sender rate limiting.
 - Docker and systemd examples.
 - Tests.
 
 ### Notes
 
-- The real MeshCore transport is not implemented yet.
+- The USB MeshCore transport is experimental and not hardware-validated yet.
+- Documented channel text frames do not expose a stable sender identity.

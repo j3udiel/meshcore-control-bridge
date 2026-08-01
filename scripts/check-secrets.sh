@@ -33,6 +33,9 @@ is_excluded_file() {
     ./.env.example|./config.example.yaml|./examples/config.yaml|./examples/systemd.env.example)
       return 0
       ;;
+    ./home-assistant-addon/*/config.yaml)
+      return 0
+      ;;
     ./tests/fixtures/allowed-placeholders/*)
       return 0
       ;;

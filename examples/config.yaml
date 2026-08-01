@@ -6,9 +6,14 @@ audit_retention_days: 30
 
 meshcore:
   # Channel 0/Public must not be used for administration.
+  transport: placeholder
   channel_index: 1
+  # Set to a stable /dev/serial/by-id/... path when testing USB.
   serial_port: null
   baudrate: 115200
+  reconnect_initial_seconds: 1
+  reconnect_max_seconds: 30
+  protocol_version: auto
 
 homeassistant:
   base_url: http://homeassistant.local:8123
@@ -21,3 +26,14 @@ users:
   "meshcore-public-key-or-stable-node-id":
     name: "admin-device"
     role: "admin"
+
+status:
+  entities:
+    temperature:
+      entity_id: sensor.living_room_temperature
+      label: Temp
+
+security:
+  rate_limit:
+    commands: 5
+    window_seconds: 60

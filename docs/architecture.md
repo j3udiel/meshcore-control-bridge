@@ -20,8 +20,8 @@ flowchart TD
 
 Transports receive `InboundMessage` instances and send `OutboundMessage`
 instances. `FakeTransport` is implemented for tests. `MeshCoreTransport` exists
-as a placeholder and raises `NotImplementedError` until the real Companion
-protocol is confirmed.
+as a placeholder and raises `NotImplementedError`. `MeshCoreUSBTransport` is an
+experimental USB serial implementation pending physical validation.
 
 ## Command Router
 
@@ -41,7 +41,8 @@ usage, help text, minimum role, confirmation flag, and handler.
 ## Home Assistant Adapter
 
 The Home Assistant client uses the local REST API with configurable base URL,
-token, TLS verification, and timeout. The current MVP checks availability.
+token, TLS verification, and timeout. The current command path uses read-only
+availability, config, and state endpoints.
 
 ## Deduplication
 
@@ -53,6 +54,11 @@ If no ID exists, it uses sender, channel, content hash, and a time bucket.
 SQLite stores inbound message metadata, command executions, confirmations,
 authorized users, audit events, and deduplication keys. Message text is hashed in
 the inbound table.
+
+## Rate Limiting
+
+The bridge applies a configurable in-memory command rate limit per sender. It
+does not permanently block users.
 
 ## Future Server Providers
 
