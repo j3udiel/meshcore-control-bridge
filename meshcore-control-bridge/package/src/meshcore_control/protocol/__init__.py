@@ -1,2 +1,0 @@
-"""MeshCore Companion Protocol helpers."""
-

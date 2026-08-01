@@ -21,7 +21,6 @@ from meshcore_control.transport.homeassistant_meshcore import (
     HomeAssistantMeshCoreTransport,
 )
 from meshcore_control.transport.meshcore import MeshCoreTransport
-from meshcore_control.transport.meshcore_usb import MeshCoreUsbSettings, MeshCoreUSBTransport
 
 
 def build_service(config: AppConfig) -> BridgeService:
@@ -76,6 +75,11 @@ def _build_transport(config: AppConfig) -> Transport:
             )
         )
     if config.meshcore.transport == "usb":
+        from meshcore_control.transport.meshcore_usb import (
+            MeshCoreUsbSettings,
+            MeshCoreUSBTransport,
+        )
+
         if config.meshcore.serial_port is None:
             raise ValueError("serial_port is required for USB transport")
         return MeshCoreUSBTransport(
