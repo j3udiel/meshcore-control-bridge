@@ -11,7 +11,8 @@ Internet access, public DNS, Telegram, or other cloud services are unavailable.
 
 This project is experimental and not production-ready.
 
-- The real MeshCore transport is not implemented yet.
+- The USB MeshCore transport is experimental and has not been validated with
+  real hardware yet.
 - Do not use this for critical systems.
 - LoRa packets can be delayed, duplicated, reordered, or lost.
 - A private channel is confidentiality, not sufficient authentication.
@@ -24,8 +25,8 @@ This project is experimental and not production-ready.
 Home automation and self-hosted infrastructure often depend on Internet access
 for remote administration. This project explores a smaller local control path:
 receive a text command over a private MeshCore channel, authenticate the sender
-by a stable MeshCore identifier, execute only registered commands, and send a
-short response back through the same channel.
+when the transport exposes a stable MeshCore identifier, execute only registered
+commands, and send a short response back through the same channel.
 
 ## Architecture
 
@@ -36,7 +37,7 @@ MeshCore device
     v
 MeshCore Companion
     |
-    | USB / BLE / TCP (not confirmed yet)
+    | USB serial (experimental) / BLE (future) / TCP (unconfirmed)
     v
 meshcore-control-bridge
     |
@@ -48,14 +49,17 @@ meshcore-control-bridge
 ```
 
 The command engine is independent from MeshCore. MeshCore is only one transport
-adapter behind a transport interface. USB, BLE, or TCP access to a real MeshCore
-Companion still needs to be confirmed before the real transport can be written.
+adapter behind a transport interface. The first experimental transport targets
+USB serial framing. BLE is documented by MeshCore but is not implemented here.
+TCP remains unconfirmed.
 
 ## Current Project Status
 
 The command engine, authorization, deduplication, SQLite audit logging, a Home
-Assistant availability client, and tests exist. The real MeshCore transport is a
-placeholder that raises `NotImplementedError` by design.
+Assistant availability client, and tests exist. The legacy `MeshCoreTransport`
+placeholder still raises `NotImplementedError` by design. The new USB transport
+is isolated as experimental code and must be validated with a real Companion
+before it is trusted for administration.
 
 This repository is suitable for development and review. It is not ready for
 operating real critical controls.
@@ -72,6 +76,9 @@ operating real critical controls.
 - Message deduplication using `message_id` or a time-window content hash.
 - SQLite audit tables for inbound messages and command executions.
 - Home Assistant availability check using the local HTTP API.
+- Optional configured Home Assistant status entities for `!estado`.
+- Experimental MeshCore USB frame codec and USB transport session.
+- Rate limiting per sender.
 - Short LoRa-oriented responses.
 - MeshCore diagnostic utility for discovering local support.
 - Docker and systemd deployment examples.
@@ -79,9 +86,10 @@ operating real critical controls.
 
 ## Not Implemented Yet
 
-- Real MeshCore Companion transport.
-- MeshCore channel enumeration.
-- MeshCore message sending through a real Companion.
+- Validated MeshCore Companion transport.
+- BLE Companion transport.
+- Authenticated sender extraction for channel text messages. The documented
+  channel message frames do not include a full stable sender identity.
 - Lights, scenes, climate, energy, server, MQTT, Proxmox, or Docker commands.
 - Confirmation flow for critical actions.
 - Telegram, REST API, or local CLI transports.
@@ -101,8 +109,12 @@ The current model is intentionally conservative:
 - Received text is never executed as shell, Python code, `eval`, or arbitrary
   subprocess input.
 - Duplicate messages are ignored within a configured time window.
+- Rate limiting applies per sender within a configurable time window.
 - Audit logs store message hashes and command metadata, not Home Assistant
   tokens.
+- Current MeshCore channel text frames do not expose a stable sender identity in
+  the official documentation. Do not whitelist synthetic channel IDs for real
+  administration unless you accept that limitation.
 
 This project has not had a formal security audit. See [SECURITY.md](SECURITY.md)
 and [docs/security-model.md](docs/security-model.md).
@@ -116,6 +128,7 @@ Only these commands are currently implemented:
 !help
 !help <group>
 !estado
+!estado ha
 ```
 
 `!ping` returns:
@@ -126,7 +139,8 @@ pong
 
 `!help` is generated from the command registry and filtered by the sender role.
 
-`!estado` returns a short status summary, including Home Assistant availability.
+`!estado` returns a short status summary, including Home Assistant availability
+and any read-only status entities configured in YAML.
 
 ## Requirements
 
@@ -165,6 +179,8 @@ Minimal environment:
 
 ```env
 MESHCORE_CHANNEL_INDEX=1
+MESHCORE_TRANSPORT=placeholder
+MESHCORE_SERIAL_PORT=
 HA_BASE_URL=http://homeassistant.local:8123
 HA_TOKEN=replace-with-home-assistant-long-lived-access-token
 HA_VERIFY_TLS=true
@@ -176,7 +192,9 @@ Minimal YAML:
 
 ```yaml
 meshcore:
+  transport: placeholder
   channel_index: 1
+  serial_port: null
 
 homeassistant:
   base_url: http://homeassistant.local:8123
@@ -186,6 +204,17 @@ users:
   "meshcore-public-key-or-stable-node-id":
     name: "admin-device"
     role: "admin"
+
+status:
+  entities:
+    temperature:
+      entity_id: sensor.living_room_temperature
+      label: Temp
+
+security:
+  rate_limit:
+    commands: 5
+    window_seconds: 60
 ```
 
 Prefer storing `HA_TOKEN` in an environment variable instead of YAML.
@@ -235,28 +264,56 @@ the configured sender identity.
 
 ## MeshCore Diagnostic Utility
 
-Run:
+List local serial ports:
 
 ```bash
-meshcore-diagnose --channel-index 1
+meshcore-diagnose list
 ```
 
-If you know the serial device:
+Inspect a candidate USB serial port:
 
 ```bash
-meshcore-diagnose --port /dev/ttyUSB0 --baudrate 115200 --listen-seconds 10
+meshcore-diagnose inspect \
+  --port /dev/serial/by-id/meshcore-companion \
+  --channel-index 1
 ```
 
-The utility currently:
+Listen without showing message content:
+
+```bash
+meshcore-diagnose listen \
+  --port /dev/serial/by-id/meshcore-companion \
+  --channel-index 1 \
+  --seconds 30
+```
+
+Send a test message only when explicitly requested:
+
+```bash
+meshcore-diagnose send-test \
+  --port /dev/serial/by-id/meshcore-companion \
+  --channel-index 1 \
+  --text "!ping"
+```
+
+The utility:
 
 - reports available Python support such as `pyserial`, `bleak`, `meshcore`, and
   `serial_asyncio`;
 - lists serial ports;
-- optionally listens for raw serial bytes;
-- does not enumerate MeshCore channels;
-- does not send MeshCore messages.
+- can query Companion info and channel slots over USB serial;
+- redacts channel secrets and public identifiers;
+- does not send text unless `send-test` is used explicitly.
 
-Those last two items require a confirmed Companion protocol or library.
+USB support is based on the official Companion Protocol plus the MeshCore wiki
+USB framing notes. It remains pending physical validation.
+
+## Deployment Mode
+
+| Mode | Use when | Status |
+| --- | --- | --- |
+| External Linux host or VM | First real test near Home Assistant and the Companion | Recommended |
+| Home Assistant OS add-on | You want the bridge managed by Home Assistant Supervisor | Future skeleton only |
 
 ## Docker Deployment
 
@@ -300,8 +357,9 @@ Assistant instance.
 ## Roadmap
 
 - Confirm the real MeshCore Companion connection model: USB serial, BLE, or TCP.
-- Document the real Companion protocol or supported Python library.
-- Implement `MeshCoreTransport` behind the existing transport interface.
+- Validate USB serial with a real Companion.
+- Confirm whether any channel-message variant exposes a stable sender identity.
+- Add a Home Assistant OS add-on after the actual installation type is known.
 - Add confirmation storage and `!confirm` / `!cancel`.
 - Add read-only house, climate, network, and server status commands.
 - Add allow-listed write actions only after role checks, confirmation, and tests.

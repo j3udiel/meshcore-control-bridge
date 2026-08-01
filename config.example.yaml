@@ -5,9 +5,15 @@ audit_retention_days: 30
 
 meshcore:
   # Do not use channel 0/Public for administrative commands.
+  # Use "placeholder" until the Companion Protocol transport is tested with hardware.
+  transport: placeholder
   channel_index: 1
+  # Example only. Prefer /dev/serial/by-id/... on Linux when available.
   serial_port: null
   baudrate: 115200
+  reconnect_initial_seconds: 1
+  reconnect_max_seconds: 30
+  protocol_version: auto
 
 homeassistant:
   # Prefer a local URL so the bridge works when Internet or public DNS is down.
@@ -25,9 +31,22 @@ users:
 
 entities:
   all: {}
-  lights:
-    salon: "light.salon"
-    cocina: "light.cocina"
-    despacho: "light.despacho"
+
+status:
+  entities:
+    temperature:
+      entity_id: sensor.living_room_temperature
+      label: Temp
+    ups:
+      entity_id: sensor.ups_battery
+      label: UPS
+    internet:
+      entity_id: binary_sensor.internet
+      label: Internet
+
+security:
+  rate_limit:
+    commands: 5
+    window_seconds: 60
 
 servers: {}
