@@ -1,0 +1,87 @@
+name: Bug report
+description: Report a reproducible bug.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Version or Git commit where the bug appears.
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Debian 12, Ubuntu 24.04, etc."
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - local editable install
+        - Docker
+        - systemd
+        - other
+    validations:
+      required: true
+  - type: input
+    id: transport
+    attributes:
+      label: Transport used
+      description: The real MeshCore transport is not implemented yet.
+      placeholder: FakeTransport, diagnostic utility, other
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove tokens, keys, node identifiers, private messages, and packet captures.
+      render: text
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Secret redaction checklist
+      options:
+        - label: I did not include secrets.
+          required: true
+        - label: I did not include private keys.
+          required: true
+        - label: I did not include channel secrets.
+          required: true
+        - label: I did not include access tokens.
+          required: true
+        - label: I did not include personal node identifiers.
+          required: true
+        - label: I did not include unredacted packet captures.
+          required: true

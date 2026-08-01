@@ -1,0 +1,51 @@
+name: Feature request
+description: Propose a scoped feature.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: security
+    attributes:
+      label: Security impact
+      description: Describe authentication, authorization, replay, logging, and secret-handling impact.
+    validations:
+      required: true
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Requires MeshCore protocol changes or research?
+      options:
+        - "no"
+        - "yes"
+        - "unknown"
+    validations:
+      required: true
+  - type: dropdown
+    id: write_actions
+    attributes:
+      label: Requires write actions?
+      description: Examples include changing Home Assistant state or controlling servers.
+      options:
+        - "no"
+        - "yes"
+        - "unknown"
+    validations:
+      required: true
