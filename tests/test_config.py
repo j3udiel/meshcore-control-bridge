@@ -74,3 +74,21 @@ meshcore:
 
     with pytest.raises(ValueError, match="SERIAL"):
         load_config(str(config_file))
+
+
+def test_homeassistant_transport_requires_ha_token(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+meshcore:
+  transport: homeassistant
+  channel_index: 1
+homeassistant:
+  base_url: http://homeassistant.local:8123
+  token: ""
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="HA_TOKEN"):
+        load_config(str(config_file))

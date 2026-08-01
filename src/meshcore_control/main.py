@@ -15,6 +15,10 @@ from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.storage.database import connect_database
 from meshcore_control.storage.repositories import AuditRepository
 from meshcore_control.transport.base import Transport
+from meshcore_control.transport.homeassistant_meshcore import (
+    HomeAssistantMeshCoreSettings,
+    HomeAssistantMeshCoreTransport,
+)
 from meshcore_control.transport.meshcore import MeshCoreTransport
 from meshcore_control.transport.meshcore_usb import MeshCoreUsbSettings, MeshCoreUSBTransport
 
@@ -54,6 +58,20 @@ def build_service(config: AppConfig) -> BridgeService:
 
 
 def _build_transport(config: AppConfig) -> Transport:
+    if config.meshcore.transport == "homeassistant":
+        return HomeAssistantMeshCoreTransport(
+            settings=HomeAssistantMeshCoreSettings(
+                channel_index=config.meshcore.channel_index,
+                ha_base_url=config.homeassistant.base_url,
+                ha_token=config.homeassistant.token,
+                ha_verify_tls=config.homeassistant.verify_tls,
+                ha_timeout_seconds=config.homeassistant.timeout_seconds,
+                ha_entry_id=config.meshcore.ha_entry_id,
+                event_types=config.meshcore.event_types,
+                require_stable_sender=config.meshcore.require_stable_sender,
+                allow_channel_without_sender=config.meshcore.allow_channel_without_sender,
+            )
+        )
     if config.meshcore.transport == "usb":
         if config.meshcore.serial_port is None:
             raise ValueError("serial_port is required for USB transport")

@@ -28,6 +28,11 @@ class MeshCoreConfig:
     reconnect_initial_seconds: float = 1.0
     reconnect_max_seconds: float = 30.0
     protocol_version: str = "auto"
+    ha_entry_id: str | None = None
+    ha_device_id: str | None = None
+    event_types: tuple[str, ...] = ("meshcore_message",)
+    require_stable_sender: bool = True
+    allow_channel_without_sender: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +92,17 @@ def load_config(config_path: str | None = None) -> AppConfig:
         ),
         protocol_version=str(
             os.getenv("MESHCORE_PROTOCOL_VERSION", meshcore_data.get("protocol_version", "auto"))
+        ),
+        ha_entry_id=os.getenv("MESHCORE_HA_ENTRY_ID", meshcore_data.get("ha_entry_id")),
+        ha_device_id=os.getenv("MESHCORE_HA_DEVICE_ID", meshcore_data.get("ha_device_id")),
+        event_types=tuple(meshcore_data.get("event_types", ["meshcore_message"])),
+        require_stable_sender=_env_bool(
+            "MESHCORE_REQUIRE_STABLE_SENDER",
+            meshcore_data.get("require_stable_sender", True),
+        ),
+        allow_channel_without_sender=_env_bool(
+            "MESHCORE_ALLOW_CHANNEL_WITHOUT_SENDER",
+            meshcore_data.get("allow_channel_without_sender", False),
         ),
     )
     homeassistant = HomeAssistantConfig(
@@ -177,10 +193,17 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("HA_BASE_URL must start with http:// or https://")
     if config.homeassistant.token and len(config.homeassistant.token) < 10:
         raise ValueError("HA_TOKEN looks too short")
-    if config.meshcore.transport not in {"placeholder", "usb", "fake"}:
-        raise ValueError("meshcore.transport must be one of: placeholder, usb, fake")
+    if config.meshcore.transport not in {"placeholder", "usb", "homeassistant", "fake"}:
+        raise ValueError("meshcore.transport must be one of: placeholder, usb, homeassistant, fake")
     if config.meshcore.transport == "usb" and not config.meshcore.serial_port:
         raise ValueError("MESHCORE_SERIAL_PORT is required when meshcore.transport is usb")
+    if config.meshcore.transport == "homeassistant":
+        if not config.homeassistant.base_url:
+            raise ValueError("HA_BASE_URL is required when meshcore.transport is homeassistant")
+        if not config.homeassistant.token:
+            raise ValueError("HA_TOKEN is required when meshcore.transport is homeassistant")
+        if "meshcore_message" not in config.meshcore.event_types:
+            raise ValueError("meshcore.event_types must include meshcore_message")
     if config.security.rate_limit.commands < 1:
         raise ValueError("rate_limit.commands must be positive")
     if config.security.rate_limit.window_seconds < 1:
