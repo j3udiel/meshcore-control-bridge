@@ -5,7 +5,6 @@ import asyncio
 import importlib.util
 import os
 from dataclasses import dataclass
-from typing import NoReturn
 
 from meshcore_control.adapters.homeassistant_ws import HomeAssistantWebSocketClient
 
@@ -15,8 +14,6 @@ class SerialPortInfo:
     device: str
     description: str
     hwid: str
-    vid: int | None
-    pid: int | None
 
 
 def discover_python_support() -> dict[str, bool]:
@@ -34,43 +31,22 @@ def list_serial_ports() -> list[SerialPortInfo]:
     except ImportError:
         return []
     return [
-        SerialPortInfo(
-            device=port.device,
-            description=port.description,
-            hwid=port.hwid,
-            vid=port.vid,
-            pid=port.pid,
-        )
+        SerialPortInfo(device=port.device, description=port.description, hwid=port.hwid)
         for port in list_ports.comports()
     ]
 
 
-async def inspect_port(port: str, baudrate: int, channel_index: int) -> int:
-    _raise_usb_unavailable(port, baudrate, channel_index)
+async def read_serial_probe(port: str, baudrate: int, seconds: float) -> bytes:
+    try:
+        import serial
+    except ImportError as exc:
+        raise RuntimeError("pyserial is required for serial probing") from exc
 
+    def _read() -> bytes:
+        with serial.Serial(port=port, baudrate=baudrate, timeout=seconds) as handle:
+            return bytes(handle.read(512))
 
-async def listen_port(
-    port: str,
-    baudrate: int,
-    channel_index: int,
-    seconds: float,
-    show_message_content: bool,
-) -> int:
-    _ = seconds, show_message_content
-    _raise_usb_unavailable(port, baudrate, channel_index)
-
-
-async def send_test(port: str, baudrate: int, channel_index: int, text: str) -> int:
-    _ = text
-    _raise_usb_unavailable(port, baudrate, channel_index)
-
-
-def _raise_usb_unavailable(port: str, baudrate: int, channel_index: int) -> NoReturn:
-    _ = port, baudrate, channel_index
-    raise NotImplementedError(
-        "USB diagnostics are available only on the experimental USB transport branch. "
-        "Use ha-inspect or ha-listen for the Home Assistant MeshCore integration."
-    )
+    return await asyncio.to_thread(_read)
 
 
 async def ha_inspect(
@@ -101,9 +77,7 @@ async def ha_inspect(
     except Exception as exc:
         entries = []
         print(f"Config entries: ERROR {exc.__class__.__name__}")
-    meshcore_entries = [
-        entry for entry in entries if entry.get("domain") == "meshcore"
-    ]
+    meshcore_entries = [entry for entry in entries if entry.get("domain") == "meshcore"]
     print("Config entries:")
     if not meshcore_entries:
         print("- none found through WebSocket config_entries/get")
@@ -161,33 +135,32 @@ async def ha_listen(
     return 0
 
 
-def _print_support_and_ports() -> None:
+async def _legacy_serial_probe(args: argparse.Namespace) -> int:
+    print("MeshCore Companion diagnostic")
+    print(f"Configured admin channel index: {args.channel_index}")
     print("Python support:")
     for name, available in discover_python_support().items():
         print(f"- {name}: {'yes' if available else 'no'}")
-    print("Serial ports:")
+
     ports = list_serial_ports()
+    print("Serial ports:")
     if not ports:
         print("- none detected")
     for port in ports:
-        vid_pid = _format_vid_pid(port.vid, port.pid)
-        print(f"- {port.device}: {port.description} ({port.hwid}) {vid_pid}")
+        print(f"- {port.device}: {port.description} ({port.hwid})")
 
+    print("Companion protocol:")
+    print("- channel enumeration: not available until MeshCore protocol/library is confirmed")
+    print("- message receive/send: not available until MeshCore protocol/library is confirmed")
 
-def _format_vid_pid(vid: int | None, pid: int | None) -> str:
-    if vid is None or pid is None:
-        return ""
-    return f"vid={vid:04x} pid={pid:04x}"
-
-
-def _redact_id(value: str) -> str:
-    if len(value) <= 12:
-        return value
-    return f"{value[:8]}...{value[-4:]}"
-
-
-def _redact_optional(value: str | None) -> str:
-    return "<redacted>" if value else "N/D"
+    if args.port:
+        print(f"Listening for raw serial bytes on {args.port} for {args.listen_seconds:g}s")
+        data = await read_serial_probe(args.port, args.baudrate, args.listen_seconds)
+        if data:
+            print(f"Read {len(data)} raw bytes. Hex preview: {data[:64].hex()}")
+        else:
+            print("No raw bytes received.")
+    return 0
 
 
 def _env_token_or_arg(value: str | None) -> str:
@@ -201,34 +174,25 @@ def _verify_tls(value: str) -> bool:
     return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _redact_id(value: str) -> str:
+    if len(value) <= 12:
+        return value
+    return f"{value[:8]}...{value[-4:]}"
+
+
+def _redact_optional(value: str | None) -> str:
+    return "<redacted>" if value else "N/D"
+
+
 async def amain() -> int:
     parser = argparse.ArgumentParser(
-        description="Inspect MeshCore Companion connectivity without exposing secrets."
+        description="Inspect possible MeshCore Companion connectivity without exposing secrets."
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    subparsers.add_parser("list", help="List serial ports and Python support")
-
-    inspect_parser = subparsers.add_parser(
-        "inspect",
-        help="Open a serial port and query Companion info",
-    )
-    inspect_parser.add_argument("--port", required=True)
-    inspect_parser.add_argument("--baudrate", type=int, default=115200)
-    inspect_parser.add_argument("--channel-index", type=int, default=1)
-
-    listen_parser = subparsers.add_parser("listen", help="Listen for queued channel messages")
-    listen_parser.add_argument("--port", required=True)
-    listen_parser.add_argument("--baudrate", type=int, default=115200)
-    listen_parser.add_argument("--channel-index", type=int, default=1)
-    listen_parser.add_argument("--seconds", type=float, default=30.0)
-    listen_parser.add_argument("--show-message-content", action="store_true")
-
-    send_parser = subparsers.add_parser("send-test", help="Send a test message explicitly")
-    send_parser.add_argument("--port", required=True)
-    send_parser.add_argument("--baudrate", type=int, default=115200)
-    send_parser.add_argument("--channel-index", type=int, default=1)
-    send_parser.add_argument("--text", required=True)
+    parser.add_argument("--port", help="Serial device to probe, e.g. /dev/ttyACM0")
+    parser.add_argument("--baudrate", type=int, default=115200)
+    parser.add_argument("--listen-seconds", type=float, default=5.0)
+    parser.add_argument("--channel-index", type=int, default=1)
+    subparsers = parser.add_subparsers(dest="command")
 
     ha_inspect_parser = subparsers.add_parser(
         "ha-inspect",
@@ -251,21 +215,6 @@ async def amain() -> int:
     ha_listen_parser.add_argument("--show-message-content", action="store_true")
 
     args = parser.parse_args()
-    if args.command == "list":
-        _print_support_and_ports()
-        return 0
-    if args.command == "inspect":
-        return await inspect_port(args.port, args.baudrate, args.channel_index)
-    if args.command == "listen":
-        return await listen_port(
-            args.port,
-            args.baudrate,
-            args.channel_index,
-            args.seconds,
-            args.show_message_content,
-        )
-    if args.command == "send-test":
-        return await send_test(args.port, args.baudrate, args.channel_index, args.text)
     if args.command == "ha-inspect":
         if not args.ha_url:
             raise RuntimeError("Home Assistant URL is required. Pass --ha-url or set HA_BASE_URL.")
@@ -286,7 +235,7 @@ async def amain() -> int:
             args.seconds,
             args.show_message_content,
         )
-    raise AssertionError(f"unknown command {args.command}")
+    return await _legacy_serial_probe(args)
 
 
 def main() -> None:
