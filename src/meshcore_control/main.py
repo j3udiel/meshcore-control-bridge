@@ -11,15 +11,21 @@ from meshcore_control.config import AppConfig, load_config
 from meshcore_control.logging import configure_logging
 from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
+from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.storage.database import connect_database
 from meshcore_control.storage.repositories import AuditRepository
+from meshcore_control.transport.base import Transport
+from meshcore_control.transport.homeassistant_meshcore import (
+    HomeAssistantMeshCoreSettings,
+    HomeAssistantMeshCoreTransport,
+)
 from meshcore_control.transport.meshcore import MeshCoreTransport
 
 
 def build_service(config: AppConfig) -> BridgeService:
     connection = connect_database(config.database_path)
     registry = build_registry()
-    services: dict[str, object] = {"registry": registry}
+    services: dict[str, object] = {"registry": registry, "config": config}
     if config.homeassistant.base_url and config.homeassistant.token:
         services["homeassistant"] = HomeAssistantClient(
             base_url=config.homeassistant.base_url,
@@ -35,14 +41,42 @@ def build_service(config: AppConfig) -> BridgeService:
         services=services,
         prefix=config.command_prefix,
     )
+    transport = _build_transport(config)
     return BridgeService(
-        transport=MeshCoreTransport(channel_index=config.meshcore.channel_index),
+        transport=transport,
         router=router,
         deduplicator=Deduplicator(
             connection, window_seconds=config.deduplication_window_seconds
         ),
+        rate_limiter=RateLimiter(
+            max_commands=config.security.rate_limit.commands,
+            window_seconds=config.security.rate_limit.window_seconds,
+        ),
         channel_index=config.meshcore.channel_index,
     )
+
+
+def _build_transport(config: AppConfig) -> Transport:
+    if config.meshcore.transport == "homeassistant":
+        return HomeAssistantMeshCoreTransport(
+            settings=HomeAssistantMeshCoreSettings(
+                channel_index=config.meshcore.channel_index,
+                ha_base_url=config.homeassistant.base_url,
+                ha_token=config.homeassistant.token,
+                ha_verify_tls=config.homeassistant.verify_tls,
+                ha_timeout_seconds=config.homeassistant.timeout_seconds,
+                ha_entry_id=config.meshcore.ha_entry_id,
+                event_types=config.meshcore.event_types,
+                require_stable_sender=config.meshcore.require_stable_sender,
+                allow_channel_without_sender=config.meshcore.allow_channel_without_sender,
+            )
+        )
+    if config.meshcore.transport == "usb":
+        raise NotImplementedError(
+            "USB transport is not available in this branch. "
+            "Use meshcore.transport=homeassistant or the experimental USB PR."
+        )
+    return MeshCoreTransport(channel_index=config.meshcore.channel_index)
 
 
 async def amain() -> None:

@@ -38,6 +38,7 @@ dependencies = [
   "httpx>=0.27",
   "PyYAML>=6.0",
   "pyserial>=3.5",
+  "websockets>=12.0",
 ]
 
 [project.optional-dependencies]
@@ -77,4 +78,8 @@ warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 module = ["httpx", "serial", "serial.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["websockets"]
 ignore_missing_imports = true

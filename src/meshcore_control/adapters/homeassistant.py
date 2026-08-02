@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 _BEARER_SCHEME = "Bearer"
+_MAX_JSON_BYTES = 1_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,22 +55,20 @@ class HomeAssistantClient:
         except Exception as exc:
             return HomeAssistantStatus(available=False, message=exc.__class__.__name__)
 
-    async def get_state(self, entity_or_alias: str) -> dict[str, Any]:
-        try:
-            import httpx
-        except ImportError as exc:
-            raise RuntimeError("httpx is required for Home Assistant API calls") from exc
+    async def get_config(self) -> dict[str, Any]:
+        response = await self._get("/api/config")
+        return dict(response)
 
+    async def get_states(self) -> list[dict[str, Any]]:
+        response = await self._get("/api/states")
+        if not isinstance(response, list):
+            raise ValueError("Home Assistant states response was not a list")
+        return [dict(item) for item in response if isinstance(item, dict)]
+
+    async def get_state(self, entity_or_alias: str) -> dict[str, Any]:
         entity_id = self.resolve_entity(entity_or_alias)
-        async with httpx.AsyncClient(
-            base_url=self.base_url,
-            headers=self._headers,
-            verify=self.verify_tls,
-            timeout=self.timeout_seconds,
-        ) as client:
-            response = await client.get(f"/api/states/{entity_id}")
-            response.raise_for_status()
-            return dict(response.json())
+        response = await self._get(f"/api/states/{entity_id}")
+        return dict(response)
 
     async def call_service(
         self, domain: str, service: str, payload: dict[str, Any]
@@ -87,7 +86,31 @@ class HomeAssistantClient:
         ) as client:
             response = await client.post(f"/api/services/{domain}/{service}", json=payload)
             response.raise_for_status()
+            _validate_response_size(response)
             return list(response.json())
+
+    async def _get(self, path: str) -> Any:
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError("httpx is required for Home Assistant API calls") from exc
+
+        async with httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self._headers,
+            verify=self.verify_tls,
+            timeout=self.timeout_seconds,
+        ) as client:
+            response = await client.get(path)
+            response.raise_for_status()
+            _validate_response_size(response)
+            return response.json()
 
     def resolve_entity(self, entity_or_alias: str) -> str:
         return self.entity_aliases.get(entity_or_alias, entity_or_alias)
+
+
+def _validate_response_size(response: Any) -> None:
+    content = getattr(response, "content", b"")
+    if isinstance(content, bytes) and len(content) > _MAX_JSON_BYTES:
+        raise ValueError("Home Assistant response too large")
