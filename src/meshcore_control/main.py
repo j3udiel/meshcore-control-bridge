@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 
 from meshcore_control.adapters.homeassistant import HomeAssistantClient
 from meshcore_control.app import BridgeService
@@ -21,6 +22,8 @@ from meshcore_control.transport.homeassistant_meshcore import (
     HomeAssistantMeshCoreTransport,
 )
 from meshcore_control.transport.meshcore import MeshCoreTransport
+
+logger = logging.getLogger(__name__)
 
 
 def build_service(config: AppConfig) -> BridgeService:
@@ -92,10 +95,15 @@ async def amain() -> None:
     if args.home_assistant_app:
         config, options = load_homeassistant_app_config()
         configure_logging(options.log_level.upper())
+        logger.info("Home Assistant App runtime detected")
+        if options.allow_unidentified_readonly_testing:
+            logger.warning("Unidentified readonly testing enabled")
     else:
         configure_logging(args.log_level)
         config = load_config(args.config)
     service = build_service(config)
+    if args.home_assistant_app:
+        logger.info("Bridge ready")
     await service.run_forever()
 
 

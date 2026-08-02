@@ -57,6 +57,13 @@ class HomeAssistantMeshCoreTransport:
         )
         self._event_iterator: Any | None = None
         self._resolved_entry_id: str | None = settings.ha_entry_id
+        logger.info("Listening for MeshCore messages on channel %s", settings.channel_index)
+        if settings.allow_channel_without_sender:
+            logger.warning("Unidentified readonly testing is enabled")
+        if self._resolved_entry_id:
+            logger.info("MeshCore entry selected: %s", _redact_identifier(self._resolved_entry_id))
+        else:
+            logger.info("MeshCore entry selection pending")
         if settings.healthcheck_path:
             self.client.on_subscribed = self._mark_subscribed
 
@@ -103,8 +110,10 @@ class HomeAssistantMeshCoreTransport:
             entry_id = meshcore_entries[0].get("entry_id")
             if isinstance(entry_id, str) and entry_id:
                 self._resolved_entry_id = entry_id
+                logger.info("MeshCore entry selected: %s", _redact_identifier(entry_id))
                 return
         if len(meshcore_entries) > 1:
+            logger.warning("Multiple MeshCore config entries found without explicit selection")
             raise RuntimeError("multiple MeshCore config entries found; set meshcore_entry_id")
         self._resolved_entry_id = None
 
@@ -201,3 +210,9 @@ def _parse_time(value: str | None) -> datetime | None:
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
     except ValueError:
         return None
+
+
+def _redact_identifier(value: str) -> str:
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}...{value[-4:]}"
