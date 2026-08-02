@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from meshcore_control.auth.authorization import AuthorizedUser
+from meshcore_control.auth.authorization import AuthorizedUser, RoomPolicy
 from meshcore_control.auth.roles import Role, parse_role
 from meshcore_control.config import (
     AppConfig,
@@ -134,6 +134,7 @@ class HomeAssistantAppOptions:
                 name="unidentified-channel-testing",
                 role=Role.readonly,
             )
+        room_id = f"homeassistant-meshcore:channel:{self.channel_index}"
         return AppConfig(
             command_prefix=self.command_prefix,
             database_path=APP_DATABASE_PATH,
@@ -154,6 +155,14 @@ class HomeAssistantAppOptions:
                 websocket_url=runtime.websocket_url,
             ),
             users=users,
+            room_policies={
+                room_id: RoomPolicy(
+                    room_id=room_id,
+                    enabled=True,
+                    minimum_role=Role.readonly,
+                    allow_commands=True,
+                )
+            },
             status_entities={
                 entity.alias: StatusEntityConfig(entity_id=entity.entity_id, label=entity.label)
                 for entity in self.status_entities

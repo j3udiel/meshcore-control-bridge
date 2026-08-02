@@ -7,8 +7,8 @@ from typing import Any
 
 import yaml
 
-from meshcore_control.auth.authorization import AuthorizedUser
-from meshcore_control.auth.roles import parse_role
+from meshcore_control.auth.authorization import AuthorizedUser, RoomPolicy
+from meshcore_control.auth.roles import Role, parse_role
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +65,7 @@ class AppConfig:
         default_factory=lambda: HomeAssistantConfig(base_url="", token="")
     )
     users: dict[str, AuthorizedUser] = field(default_factory=dict)
+    room_policies: dict[str, RoomPolicy] = field(default_factory=dict)
     entities: dict[str, dict[str, str]] = field(default_factory=dict)
     status_entities: dict[str, StatusEntityConfig] = field(default_factory=dict)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -126,6 +127,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         meshcore=meshcore,
         homeassistant=homeassistant,
         users=_parse_users(file_data.get("users", {})),
+        room_policies=_legacy_room_policies(meshcore),
         entities=dict(file_data.get("entities", {})),
         status_entities=_parse_status_entities(file_data.get("status", {}).get("entities", {})),
         servers=dict(file_data.get("servers", {})),
@@ -156,6 +158,28 @@ def _parse_users(raw_users: dict[str, Any]) -> dict[str, AuthorizedUser]:
             role=parse_role(str(raw_user.get("role", "readonly"))),
         )
     return users
+
+
+def _legacy_room_policies(meshcore: MeshCoreConfig) -> dict[str, RoomPolicy]:
+    room_id = f"{_transport_room_scope(meshcore.transport)}:channel:{meshcore.channel_index}"
+    return {
+        room_id: RoomPolicy(
+            room_id=room_id,
+            enabled=True,
+            minimum_role=Role.readonly,
+            allow_commands=True,
+        )
+    }
+
+
+def _transport_room_scope(transport: str) -> str:
+    if transport == "homeassistant":
+        return "homeassistant-meshcore"
+    if transport == "fake":
+        return "fake"
+    if transport == "usb":
+        return "meshcore-usb"
+    return transport
 
 
 def _parse_status_entities(raw_entities: dict[str, Any]) -> dict[str, StatusEntityConfig]:

@@ -31,6 +31,10 @@ class BridgeService:
         if message.channel_index != self.channel_index:
             logger.info("Message ignored reason=wrong_channel channel=%s", message.channel_index)
             return None
+        if not self.router.authorizer.allows_room(message):
+            room_id = message.source_room.room_id if message.source_room is not None else "unknown"
+            logger.info("Message ignored reason=room_not_allowed room=%s", room_id)
+            return None
         if self.deduplicator.seen_or_store(message):
             logger.info("Message ignored reason=duplicate channel=%s", message.channel_index)
             return None

@@ -40,7 +40,7 @@ def build_service(config: AppConfig) -> BridgeService:
         )
     router = CommandRouter(
         registry=registry,
-        authorizer=Authorizer(config.users),
+        authorizer=Authorizer(config.users, room_policies=config.room_policies),
         audit=AuditRepository(connection),
         services=services,
         prefix=config.command_prefix,

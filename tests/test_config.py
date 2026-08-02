@@ -43,6 +43,7 @@ users:
     assert config.meshcore.serial_port == "/dev/serial/by-id/meshcore-companion"
     assert config.homeassistant.base_url == "http://homeassistant.local:8123"
     assert config.users["sender-1"].role is Role.readonly
+    assert config.room_policies["meshcore-usb:channel:1"].minimum_role is Role.readonly
     assert config.status_entities["temperature"].label == "Temp"
     assert config.security.rate_limit.commands == 3
 

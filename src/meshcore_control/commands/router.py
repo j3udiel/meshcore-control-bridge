@@ -49,14 +49,21 @@ class CommandRouter:
                 )
                 return "Comando desconocido. Usa !help"
 
-            user = self.authorizer.require(message.sender_id, definition.minimum_role)
+            user = self.authorizer.require_message(message, definition.minimum_role)
             if user is None:
                 result = "unauthorized"
-                existing_user = self.authorizer.get_user(message.sender_id)
+                sender_id = (
+                    message.sender.sender_id if message.sender is not None else message.sender_id
+                )
+                existing_user = self.authorizer.get_user(sender_id)
                 logger.info(
                     "Command rejected command=%s authorization=denied reason=%s",
                     definition.name,
-                    _authorization_denial_reason(existing_user, definition.minimum_role),
+                    _authorization_denial_reason(
+                        existing_user,
+                        definition.minimum_role,
+                        self.authorizer.allows_room(message),
+                    ),
                 )
                 return "No autorizado."
 
@@ -81,7 +88,13 @@ class CommandRouter:
             )
 
 
-def _authorization_denial_reason(user: object | None, minimum_role: Role) -> str:
+def _authorization_denial_reason(
+    user: object | None,
+    minimum_role: Role,
+    room_allowed: bool,
+) -> str:
+    if not room_allowed:
+        return "room_not_allowed"
     if user is None:
         return "sender_not_registered"
     if minimum_role > Role.readonly:
