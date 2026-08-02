@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse, urlunparse
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +62,7 @@ class HomeAssistantWebSocketClient:
             subscriptions: dict[int, str] = {}
             try:
                 await self._authenticate(websocket)
+                logger.info("Home Assistant WebSocket authenticated")
                 for event_type in event_types:
                     command_id = await self._send(
                         websocket,
@@ -66,11 +70,12 @@ class HomeAssistantWebSocketClient:
                     )
                     await self._expect_success(websocket, command_id)
                     subscriptions[command_id] = event_type
+                    logger.info("Subscribed to Home Assistant event type %s", event_type)
                 if self.on_subscribed is not None:
                     self.on_subscribed()
 
                 while True:
-                    payload = await self._recv_json(websocket)
+                    payload = await self._recv_json(websocket, timeout=None)
                     if payload.get("type") != "event":
                         continue
                     event = payload.get("event")
@@ -90,7 +95,11 @@ class HomeAssistantWebSocketClient:
                         time_fired=_optional_str(event.get("time_fired")),
                         context_id=_context_id(event.get("context")),
                     )
+            except asyncio.CancelledError:
+                logger.info("Home Assistant WebSocket listener cancelled")
+                raise
             except Exception:
+                logger.warning("Home Assistant WebSocket disconnected; reconnecting")
                 await asyncio.sleep(1)
                 continue
 
@@ -145,22 +154,23 @@ class HomeAssistantWebSocketClient:
             ) from exc
 
         ssl_context = None if self.verify_tls else False
-        async with websockets.connect(
-            self.websocket_url(),
-            open_timeout=self.timeout_seconds,
-            ping_interval=20,
-            ping_timeout=self.timeout_seconds,
-            max_size=self.max_message_bytes,
-            ssl=ssl_context,
-        ) as websocket:
-            yield websocket
+        while True:
+            async with websockets.connect(
+                self.websocket_url(),
+                open_timeout=self.timeout_seconds,
+                ping_interval=20,
+                ping_timeout=self.timeout_seconds,
+                max_size=self.max_message_bytes,
+                ssl=ssl_context,
+            ) as websocket:
+                yield websocket
 
     async def _authenticate(self, websocket: Any) -> None:
-        hello = await self._recv_json(websocket)
+        hello = await self._recv_json(websocket, timeout=self.timeout_seconds)
         if hello.get("type") != "auth_required":
             raise RuntimeError("Home Assistant WebSocket did not request authentication")
         await websocket.send(json.dumps({"type": "auth", "access_token": self.token}))
-        result = await self._recv_json(websocket)
+        result = await self._recv_json(websocket, timeout=self.timeout_seconds)
         if result.get("type") != "auth_ok":
             raise RuntimeError("Home Assistant WebSocket authentication failed")
 
@@ -172,15 +182,16 @@ class HomeAssistantWebSocketClient:
 
     async def _expect_success(self, websocket: Any, command_id: int) -> Any:
         while True:
-            payload = await self._recv_json(websocket)
+            payload = await self._recv_json(websocket, timeout=self.timeout_seconds)
             if payload.get("type") != "result" or payload.get("id") != command_id:
                 continue
             if not payload.get("success"):
                 raise RuntimeError("Home Assistant WebSocket command failed")
             return payload.get("result")
 
-    async def _recv_json(self, websocket: Any) -> dict[str, Any]:
-        raw = await asyncio.wait_for(websocket.recv(), timeout=self.timeout_seconds)
+    async def _recv_json(self, websocket: Any, timeout: float | None) -> dict[str, Any]:
+        receive = websocket.recv()
+        raw = await receive if timeout is None else await asyncio.wait_for(receive, timeout=timeout)
         if isinstance(raw, bytes):
             if len(raw) > self.max_message_bytes:
                 raise ValueError("Home Assistant WebSocket message too large")

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3
+
+- Keep Home Assistant WebSocket event subscriptions open during idle periods.
+- Reconnect only after a real WebSocket close or transport error.
+- Prevent protocol libraries from logging authentication frames at debug level.
+- Add defensive log redaction for access tokens, bearer headers, and
+  `SUPERVISOR_TOKEN` values.
+- Add safe bridge lifecycle logs for App runtime, authentication, subscription,
+  channel listening, entry selection, and readiness.
+
 ## 0.1.2
 
 - Remove the custom `apparmor.txt` profile for the experimental App.
