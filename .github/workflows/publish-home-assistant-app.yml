@@ -71,7 +71,7 @@ jobs:
           arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
           context: .
-          dockerfile: meshcore-control-bridge/Dockerfile
+          file: meshcore-control-bridge/Dockerfile
           image: ${{ matrix.image }}
           image-tags: |
             ${{ needs.init.outputs.version }}

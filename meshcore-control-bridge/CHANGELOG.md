@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Fix the GitHub Actions App publishing workflow so it builds
+  `meshcore-control-bridge/Dockerfile` instead of the standalone root
+  `Dockerfile`.
+- Strengthen the built-image check so published App artifacts must keep the
+  Home Assistant base `/init` entrypoint, run `/run.sh`, load `/data/options.json`,
+  and avoid the standalone `/config/config.yaml` startup path.
+
 ## 0.1.5
 
 - Remove the duplicated vendored Python package from the App directory.

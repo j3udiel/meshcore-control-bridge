@@ -108,3 +108,8 @@ fi
 
 grep -q 'SUPERVISOR_TOKEN' meshcore-control-bridge/run.sh
 grep -q 'python3 -m meshcore_control.main --home-assistant-app' meshcore-control-bridge/run.sh
+grep -q 'file: meshcore-control-bridge/Dockerfile' .github/workflows/publish-home-assistant-app.yml
+if grep -q 'dockerfile: meshcore-control-bridge/Dockerfile' .github/workflows/publish-home-assistant-app.yml; then
+  printf '%s\n' "publish workflow must use the Home Assistant builder 'file' input, not 'dockerfile'" >&2
+  exit 1
+fi
