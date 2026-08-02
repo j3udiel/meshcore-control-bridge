@@ -3,6 +3,19 @@ set -euo pipefail
 
 image="${1:-meshcore-control-bridge-ha-app:test}"
 
+entrypoint="$(docker inspect "${image}" --format '{{json .Config.Entrypoint}}')"
+cmd="$(docker inspect "${image}" --format '{{json .Config.Cmd}}')"
+
+if [[ "${entrypoint}" != '["/init"]' ]]; then
+  printf 'unexpected image entrypoint: %s\n' "${entrypoint}" >&2
+  exit 1
+fi
+
+if [[ "${cmd}" != '["/run.sh"]' ]]; then
+  printf 'unexpected image command: %s\n' "${cmd}" >&2
+  exit 1
+fi
+
 docker run --rm --entrypoint /bin/sh "${image}" -lc 'python3 - <<'"'"'PY'"'"'
 import asyncio
 import inspect
@@ -87,3 +100,58 @@ async def main() -> None:
 asyncio.run(main())
 print("built-image-ok")
 PY'
+
+tmpdir="$(mktemp -d)"
+cleanup() {
+  rm -rf "${tmpdir}"
+}
+trap cleanup EXIT
+
+cat > "${tmpdir}/options.json" <<'JSON'
+{
+  "channel_index": 1,
+  "meshcore_entry_id": "",
+  "command_prefix": "!",
+  "authorized_senders": [],
+  "status_entities": [],
+  "rate_limit": {
+    "commands": 5,
+    "window_seconds": 60
+  },
+  "log_level": "info",
+  "allow_unidentified_readonly_testing": true
+}
+JSON
+
+set +e
+startup_output="$(
+  timeout 12s docker run --rm \
+    -e SUPERVISOR_TOKEN=dummy-supervisor-token \
+    -v "${tmpdir}:/data" \
+    "${image}" 2>&1
+)"
+startup_status=$?
+set -e
+
+if [[ "${startup_output}" != *"Home Assistant App runtime detected"* ]]; then
+  printf '%s\n' "image did not reach Home Assistant App runtime startup" >&2
+  printf '%s\n' "${startup_output}" | sed 's/dummy-supervisor-token/[REDACTED]/g' >&2
+  exit 1
+fi
+
+if [[ "${startup_output}" == *"/config/config.yaml"* ]] || [[ "${startup_output}" == *"config file does not exist"* ]]; then
+  printf '%s\n' "image attempted to use standalone YAML configuration" >&2
+  printf '%s\n' "${startup_output}" | sed 's/dummy-supervisor-token/[REDACTED]/g' >&2
+  exit 1
+fi
+
+if [[ "${startup_output}" == *"dummy-supervisor-token"* ]]; then
+  printf '%s\n' "image startup logs exposed SUPERVISOR_TOKEN" >&2
+  exit 1
+fi
+
+if [[ "${startup_status}" != 0 && "${startup_status}" != 1 && "${startup_status}" != 124 ]]; then
+  printf 'unexpected startup status: %s\n' "${startup_status}" >&2
+  printf '%s\n' "${startup_output}" | sed 's/dummy-supervisor-token/[REDACTED]/g' >&2
+  exit 1
+fi
