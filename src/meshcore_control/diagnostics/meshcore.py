@@ -5,25 +5,9 @@ import asyncio
 import importlib.util
 import os
 from dataclasses import dataclass
+from typing import NoReturn
 
 from meshcore_control.adapters.homeassistant_ws import HomeAssistantWebSocketClient
-from meshcore_control.protocol.constants import PACKET_NO_MORE_MSGS
-from meshcore_control.protocol.decoder import (
-    DecodeError,
-    decode_channel_info,
-    decode_channel_text_message,
-    decode_device_info,
-    decode_self_info,
-    packet_type,
-)
-from meshcore_control.protocol.encoder import (
-    encode_app_start,
-    encode_device_query,
-    encode_get_channel,
-    encode_send_channel_message,
-    encode_sync_next_message,
-)
-from meshcore_control.transport.meshcore_usb import MeshCoreUsbSession, MeshCoreUsbSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,37 +46,7 @@ def list_serial_ports() -> list[SerialPortInfo]:
 
 
 async def inspect_port(port: str, baudrate: int, channel_index: int) -> int:
-    session = MeshCoreUsbSession(
-        MeshCoreUsbSettings(port=port, baudrate=baudrate, channel_index=channel_index)
-    )
-    try:
-        await session.connect()
-        self_info = decode_self_info(await session.command(encode_app_start(), expected={0x05}))
-        device_info = decode_device_info(
-            await session.command(encode_device_query(), expected={0x0D})
-        )
-        print("Companion:")
-        print(f"- public key: {_redact_id(self_info.public_key)}")
-        print(f"- name: {_redact_optional(self_info.name)}")
-        print(f"- firmware protocol: {device_info.firmware_version}")
-        print(f"- firmware build: {device_info.firmware_build or 'N/D'}")
-        print(f"- model: {device_info.model or 'N/D'}")
-        print(f"- version: {device_info.version or 'N/D'}")
-        print("Channels:")
-        max_channels = device_info.max_channels or 8
-        for index in range(max_channels):
-            try:
-                packet = await session.command(encode_get_channel(index), expected={0x12})
-                channel = decode_channel_info(packet)
-            except Exception as exc:
-                print(f"- {index}: ERROR {exc.__class__.__name__}")
-                continue
-            marker = " (configured admin channel)" if index == channel_index else ""
-            name = channel.name or "empty"
-            print(f"- {index}: {name}; secret={channel.secret_redacted}{marker}")
-        return 0
-    finally:
-        await session.close()
+    _raise_usb_unavailable(port, baudrate, channel_index)
 
 
 async def listen_port(
@@ -102,53 +56,21 @@ async def listen_port(
     seconds: float,
     show_message_content: bool,
 ) -> int:
-    session = MeshCoreUsbSession(
-        MeshCoreUsbSettings(port=port, baudrate=baudrate, channel_index=channel_index)
-    )
-    try:
-        await session.connect()
-        deadline = asyncio.get_running_loop().time() + seconds
-        print(f"Listening on channel {channel_index} for {seconds:g}s")
-        while asyncio.get_running_loop().time() < deadline:
-            try:
-                frame = await asyncio.wait_for(
-                    session.command(encode_sync_next_message(), expected={0x08, 0x0A, 0x11}),
-                    timeout=min(5.0, max(0.1, deadline - asyncio.get_running_loop().time())),
-                )
-            except TimeoutError:
-                continue
-            if packet_type(frame) == PACKET_NO_MORE_MSGS:
-                await asyncio.sleep(0.5)
-                continue
-            try:
-                message = decode_channel_text_message(frame)
-            except DecodeError as exc:
-                print(f"- unsupported packet: {exc}")
-                continue
-            if message.channel_index != channel_index:
-                print(f"- ignored channel {message.channel_index}")
-                continue
-            text = message.text if show_message_content else "<redacted>"
-            print(f"- channel={message.channel_index} ts={message.timestamp} text={text}")
-        return 0
-    finally:
-        await session.close()
+    _ = seconds, show_message_content
+    _raise_usb_unavailable(port, baudrate, channel_index)
 
 
 async def send_test(port: str, baudrate: int, channel_index: int, text: str) -> int:
-    session = MeshCoreUsbSession(
-        MeshCoreUsbSettings(port=port, baudrate=baudrate, channel_index=channel_index)
+    _ = text
+    _raise_usb_unavailable(port, baudrate, channel_index)
+
+
+def _raise_usb_unavailable(port: str, baudrate: int, channel_index: int) -> NoReturn:
+    _ = port, baudrate, channel_index
+    raise NotImplementedError(
+        "USB diagnostics are available only on the experimental USB transport branch. "
+        "Use ha-inspect or ha-listen for the Home Assistant MeshCore integration."
     )
-    try:
-        await session.connect()
-        await session.command(
-            encode_send_channel_message(channel_index=channel_index, text=text),
-            expected={0x06},
-        )
-        print("Test message queued.")
-        return 0
-    finally:
-        await session.close()
 
 
 async def ha_inspect(

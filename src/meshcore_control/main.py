@@ -20,7 +20,6 @@ from meshcore_control.transport.homeassistant_meshcore import (
     HomeAssistantMeshCoreTransport,
 )
 from meshcore_control.transport.meshcore import MeshCoreTransport
-from meshcore_control.transport.meshcore_usb import MeshCoreUsbSettings, MeshCoreUSBTransport
 
 
 def build_service(config: AppConfig) -> BridgeService:
@@ -73,16 +72,9 @@ def _build_transport(config: AppConfig) -> Transport:
             )
         )
     if config.meshcore.transport == "usb":
-        if config.meshcore.serial_port is None:
-            raise ValueError("serial_port is required for USB transport")
-        return MeshCoreUSBTransport(
-            settings=MeshCoreUsbSettings(
-                port=config.meshcore.serial_port,
-                baudrate=config.meshcore.baudrate,
-                channel_index=config.meshcore.channel_index,
-            ),
-            reconnect_initial_seconds=config.meshcore.reconnect_initial_seconds,
-            reconnect_max_seconds=config.meshcore.reconnect_max_seconds,
+        raise NotImplementedError(
+            "USB transport is not available in this branch. "
+            "Use meshcore.transport=homeassistant or the experimental USB PR."
         )
     return MeshCoreTransport(channel_index=config.meshcore.channel_index)
 
