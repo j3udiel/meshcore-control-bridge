@@ -61,6 +61,7 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.homeassistant.base_url == SUPERVISOR_REST_BASE_URL
     assert config.homeassistant.websocket_url == SUPERVISOR_WEBSOCKET_URL
     assert config.users["meshcore-pubkey-prefix:abcdef123456"].role is Role.admin
+    assert config.room_policies["homeassistant-meshcore:channel:1"].minimum_role is Role.readonly
     assert config.status_entities["temperature"].entity_id == "sensor.living_room_temperature"
 
 
