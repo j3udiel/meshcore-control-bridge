@@ -92,11 +92,13 @@ def message(
 
 def test_ping_replies_pong(tmp_path) -> None:
     service, transport, audit = build_test_service(connect_database(str(tmp_path / "audit.db")))
+    inbound = message("!ping")
 
-    outbound = asyncio.run(service.process_message(message("!ping")))
+    outbound = asyncio.run(service.process_message(inbound))
 
     assert outbound is not None
     assert outbound.text == "pong"
+    assert outbound.reply_target == inbound.reply_target
     assert transport.sent[0].text == "pong"
     assert audit.count_commands() == 1
 

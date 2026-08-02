@@ -69,6 +69,16 @@ def test_ha_meshcore_event_with_pubkey_prefix_becomes_inbound() -> None:
     assert inbound.sender_id == "meshcore-pubkey-prefix:abcdef123456"
     assert inbound.channel_index == 1
     assert inbound.metadata["stable_sender"] is True
+    assert inbound.source_room is not None
+    assert inbound.source_room.transport == "homeassistant-meshcore"
+    assert inbound.source_room.room_id == "homeassistant-meshcore:channel:1"
+    assert inbound.reply_target == inbound.source_room
+    assert inbound.sender is not None
+    assert inbound.sender.identity_kind == "meshcore_pubkey_prefix"
+    assert inbound.sender.transport_scope == "homeassistant-meshcore"
+    assert inbound.message is not None
+    assert inbound.message.id_kind == "platform"
+    assert inbound.message.origin.transport == "homeassistant-meshcore"
 
 
 def test_ha_meshcore_ignores_other_channel() -> None:

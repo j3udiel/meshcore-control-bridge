@@ -41,6 +41,7 @@ class BridgeService:
                 channel_index=self.channel_index,
                 text="Rate limit.",
                 reply_to=message.message_id,
+                reply_target=message.reply_target,
             )
             await self.transport.send(outbound)
             return outbound
@@ -52,6 +53,7 @@ class BridgeService:
             channel_index=self.channel_index,
             text=_trim_lora_response(response_text),
             reply_to=message.message_id,
+            reply_target=message.reply_target,
         )
         await self.transport.send(outbound)
         logger.info("Response sent channel=%s", outbound.channel_index)

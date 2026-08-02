@@ -14,7 +14,13 @@ from meshcore_control.adapters.homeassistant_ws import (
     HomeAssistantWebSocketClient,
 )
 from meshcore_control.homeassistant_app import unidentified_testing_sender_id
-from meshcore_control.models import InboundMessage, OutboundMessage
+from meshcore_control.models import (
+    InboundMessage,
+    MessageIdentity,
+    OutboundMessage,
+    RoomRef,
+    SenderIdentity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -178,14 +184,33 @@ class HomeAssistantMeshCoreTransport:
             if isinstance(data.get("rx_log_data"), list)
             else 0,
         }
+        source_room = RoomRef.channel(
+            transport=self.name,
+            channel_index=self.settings.channel_index,
+        )
+        sender = SenderIdentity.from_sender_id(
+            sender_id=sender_id,
+            transport_scope=self.name,
+        )
+        message_id = self._message_id(event, data)
+        message_identity = MessageIdentity.from_message_id(
+            transport=self.name,
+            room_id=source_room.room_id,
+            message_id=message_id,
+            id_kind="platform" if event.context_id else "derived",
+        )
         return InboundMessage(
             transport=self.name,
-            message_id=self._message_id(event, data),
+            message_id=message_id,
             sender_id=sender_id,
             channel_index=self.settings.channel_index,
             text=text,
             received_at=received_at,
             metadata=metadata,
+            source_room=source_room,
+            reply_target=source_room,
+            sender=sender,
+            message=message_identity,
         )
 
     def _sender_id(self, data: dict[str, Any]) -> str:
