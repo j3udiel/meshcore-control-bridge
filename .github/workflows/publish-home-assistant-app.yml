@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Image/app version to publish, for example 0.1.4
+        description: Image/app version to publish, for example 0.1.5
         required: true
         type: string
   push:
@@ -70,7 +70,8 @@ jobs:
         with:
           arch: ${{ matrix.arch }}
           container-registry-password: ${{ secrets.GITHUB_TOKEN }}
-          context: meshcore-control-bridge
+          context: .
+          dockerfile: meshcore-control-bridge/Dockerfile
           image: ${{ matrix.image }}
           image-tags: |
             ${{ needs.init.outputs.version }}

@@ -51,3 +51,21 @@ jobs:
 
       - name: Tests
         run: python -m pytest
+
+  app-image:
+    name: Home Assistant App image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build App image
+        run: |
+          docker build \
+            --build-arg BUILD_VERSION=0.1.5 \
+            -f meshcore-control-bridge/Dockerfile \
+            -t meshcore-control-bridge-ha-app:test \
+            .
+
+      - name: Check built image
+        run: bash scripts/check-built-image.sh meshcore-control-bridge-ha-app:test

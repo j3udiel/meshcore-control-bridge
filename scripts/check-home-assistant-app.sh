@@ -15,8 +15,6 @@ required_files=(
   meshcore-control-bridge/CHANGELOG.md
   meshcore-control-bridge/translations/en.yaml
   meshcore-control-bridge/translations/es.yaml
-  meshcore-control-bridge/package/pyproject.toml
-  meshcore-control-bridge/package/src/meshcore_control/main.py
 )
 
 for file in "${required_files[@]}"; do
@@ -58,7 +56,7 @@ config = yaml.safe_load(Path("meshcore-control-bridge/config.yaml").read_text(en
 unknown = set(config) - ALLOWED_CONFIG_KEYS
 assert not unknown, f"unknown or intentionally disallowed App config keys: {sorted(unknown)}"
 assert config["slug"] == "meshcore_control_bridge"
-assert config["version"] == "0.1.4"
+assert config["version"] == "0.1.5"
 assert config["homeassistant_api"] is True
 assert config["stage"] == "experimental"
 assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
@@ -89,6 +87,18 @@ if grep -q '^ENTRYPOINT' meshcore-control-bridge/Dockerfile; then
 fi
 
 grep -q 'CMD \["/run.sh"\]' meshcore-control-bridge/Dockerfile
+grep -q 'COPY pyproject.toml README.md /app/package/' meshcore-control-bridge/Dockerfile
+grep -q 'COPY src /app/package/src' meshcore-control-bridge/Dockerfile
+
+if [[ -e meshcore-control-bridge/package || -e meshcore-control-bridge/package.pyproject.toml ]]; then
+  printf '%s\n' "duplicated vendored Python package is not allowed" >&2
+  exit 1
+fi
+
+if [[ -e scripts/sync-home-assistant-app-package.sh ]]; then
+  printf '%s\n' "manual package sync script is not allowed" >&2
+  exit 1
+fi
 
 if find . -path ./.git -prune -o -path ./meshcore-control-bridge/config.yaml -prune -o -name config.yaml -print | grep -q .; then
   printf '%s\n' "unexpected recursive config.yaml outside the Home Assistant App directory" >&2
