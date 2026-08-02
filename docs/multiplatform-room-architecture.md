@@ -36,10 +36,11 @@ language:
 
 - `channel_index` assumes numeric MeshCore channels.
 - `destination` assumes a sender-oriented reply target.
-- `sender_id` is a string without typed identity kind or trust level.
+- `sender_id` is a string without typed identity kind, instance scope, or trust
+  level.
 - Deduplication keys do not include a room abstraction or direction.
 - Audit rows store transport and channel data, but not a normalized room,
-  origin, correlation ID, or transport capability snapshot.
+  origin, correlation ID, schema version, or transport capability snapshot.
 - Home Assistant App runtime code constructs configuration for both the
   Home Assistant MeshCore transport and the Home Assistant REST adapter, which
   can make Home Assistant look like the hub rather than one adapter.
@@ -77,6 +78,19 @@ or tests, but those details should stop at the transport boundary.
 
 ## Common Model
 
+### Schema Version
+
+Normalized envelopes and audit events must carry an explicit schema version so
+future bridge rules and migrations can reject unknown shapes instead of
+silently misinterpreting them.
+
+Initial value:
+
+```python
+NORMALIZED_MESSAGE_SCHEMA_VERSION = 1
+AUDIT_EVENT_SCHEMA_VERSION = 1
+```
+
 ### Transport Name
 
 A stable lowercase identifier for the adapter implementation.
@@ -91,10 +105,19 @@ Examples:
 Transport names are not security identities. They only scope message IDs,
 capabilities, room IDs, and audit records.
 
-### Room
+Avoid duplicating `transport` as a free field in multiple nested objects. The
+authoritative transport for an inbound command should be
+`InboundEnvelope.source_room.transport`. `SenderIdentity.transport_scope` exists
+only to prevent collisions between identity providers and must match the source
+transport unless a documented transport explicitly delegates identity to another
+provider.
 
-A room is the transport-neutral place where a message was observed and where a
-reply should normally be sent.
+### Rooms and Reply Targets
+
+A source room is the transport-neutral place where a message was observed. A
+reply target is where the command response should be sent. They are often the
+same, but they should be separate fields because direct messages, threads,
+future bridged rooms, and platform-specific reply APIs may differ.
 
 Proposed model:
 
@@ -121,6 +144,11 @@ MeshCore channel `0` remains forbidden for administration by policy. That policy
 should live in room authorization or transport configuration, not in command
 handlers.
 
+Future linked rooms are a separate concept. A linked-room rule may map a source
+room to one or more destinations for bridging, but command replies should not
+use linked rooms unless bridging has been explicitly enabled and loop prevention
+has been implemented.
+
 ### Sender Identity
 
 Sender identity should be typed and should record whether it is stable enough
@@ -132,12 +160,12 @@ Proposed model:
 @dataclass(frozen=True, slots=True)
 class SenderIdentity:
     sender_id: str
-    transport: str
+    transport_scope: str
     identity_kind: Literal[
         "meshcore_pubkey_prefix",
         "meshcore_node_id",
         "telegram_user_id",
-        "telegram_chat_id",
+        "telegram_sender_chat_id",
         "synthetic_test",
         "unknown",
     ]
@@ -153,13 +181,23 @@ Rules:
 - Synthetic identities are allowed only when an explicit test mode grants a
   temporary read-only role.
 - Telegram should use numeric Telegram user IDs for user identity, not usernames.
+- Telegram chats belong to `RoomRef`, not normal sender identity.
+- If Telegram channel posts or anonymous group administrators are supported
+  later, they must use a distinct `telegram_sender_chat_id` identity kind and a
+  separate authorization policy.
 - Telegram usernames and chat titles are not authentication material.
+- Sender IDs must include an instance namespace so the same external ID from two
+  different bots, Companion instances, or test transports cannot collide.
 
 Examples:
 
-- `meshcore-pubkey-prefix:abcdef123456`
-- `telegram-user:123456789`
+- `meshcore-pubkey-prefix:home:abcdef123456`
+- `telegram-user:primary-bot:123456789`
 - `test:unidentified:meshcore-ha:channel:1`
+
+The instance segment should be configured, stable, and non-secret. Examples are
+`home`, `primary-bot`, or `lab`. Do not use a token, private key, or personal
+device name as the instance value.
 
 ### Message Identity
 
@@ -206,8 +244,9 @@ Proposed future replacement for the current `InboundMessage` shape:
 ```python
 @dataclass(frozen=True, slots=True)
 class InboundEnvelope:
-    transport: str
-    room: RoomRef
+    schema_version: int
+    source_room: RoomRef
+    reply_target: RoomRef
     sender: SenderIdentity
     message: MessageIdentity
     text: str
@@ -218,6 +257,15 @@ class InboundEnvelope:
 Compatibility can be introduced gradually by adding fields to the existing
 `InboundMessage` first, then migrating storage and tests.
 
+Validation rules:
+
+- `schema_version` must be supported by the running bridge.
+- `source_room.transport` is the authoritative transport name.
+- `reply_target.transport` must match `source_room.transport` until
+  cross-platform bridging is designed and enabled.
+- `sender.transport_scope` must match the source transport or a documented
+  delegated identity provider.
+
 ### Outbound Response
 
 Outbound responses should target a room, not a MeshCore channel.
@@ -225,8 +273,8 @@ Outbound responses should target a room, not a MeshCore channel.
 ```python
 @dataclass(frozen=True, slots=True)
 class OutboundResponse:
-    transport: str
-    room: RoomRef
+    schema_version: int
+    reply_target: RoomRef
     text: str
     reply_to: str | None
     correlation_id: str
@@ -273,11 +321,11 @@ Authorization should become transport-neutral:
 
 ```yaml
 users:
-  "meshcore-pubkey-prefix:abcdef123456":
+  "meshcore-pubkey-prefix:home:abcdef123456":
     name: admin-device
     role: admin
 
-  "telegram-user:123456789":
+  "telegram-user:primary-bot:123456789":
     name: admin-telegram
     role: readonly
 ```
@@ -339,13 +387,13 @@ should still return concise text by default.
 Deduplication should use a normalized key:
 
 ```text
-transport | room_id | sender_id | message_id
+source_room.transport | source_room.room_id | sender_ref_hash | message_id
 ```
 
 When the platform lacks `message_id`, fallback to:
 
 ```text
-transport | room_id | sender_id | time_bucket | hash(normalized_text)
+source_room.transport | source_room.room_id | sender_ref_hash | time_bucket | hash(normalized_text)
 ```
 
 Do not deduplicate across transports unless a future bridge explicitly sets a
@@ -364,8 +412,8 @@ Initial rules:
 
 - Ignore transport events marked as outgoing.
 - Attach a bridge-generated `correlation_id` to audit records.
-- Store outbound responses with `origin.transport`, `origin.room_id`, and
-  `reply_to`.
+- Store outbound responses with `origin.transport`, `source_room.room_id`,
+  `reply_target.room_id`, and `reply_to`.
 - Do not forward messages from one transport to another in the Telegram
   milestone.
 
@@ -381,17 +429,36 @@ Future bridge rules must define:
 ## Audit Events
 
 Audit should record normalized metadata without storing full private message
-text.
+text or stable sender IDs.
+
+Stable sender IDs should live only in protected authorization configuration and
+in process memory. Audit storage should record a keyed hash or HMAC reference so
+events can be correlated without exposing identifiers if the SQLite database is
+published accidentally.
+
+Suggested reference:
+
+```text
+sender_ref_hash = HMAC-SHA256(audit_key, sender_id)
+```
+
+`audit_key` must be generated or configured outside the repository and rotated
+with an operator-visible migration plan. If no audit key is configured yet, use
+a clearly documented local-only fallback and mark the audit as not stable across
+rotations.
 
 Suggested event fields:
 
 - `audit_id`
+- `schema_version`
 - `correlation_id`
 - `event_type`
-- `transport`
-- `room_id`
-- `room_kind`
-- `sender_id`
+- `source_transport`
+- `source_room_id`
+- `source_room_kind`
+- `reply_transport`
+- `reply_room_id`
+- `sender_ref_hash`
 - `sender_identity_kind`
 - `sender_stable`
 - `message_id`
@@ -403,6 +470,44 @@ Suggested event fields:
 - `metadata_json`
 
 Private message text should remain hashed, not stored verbatim.
+
+## Metadata Rules
+
+Transport metadata is useful for diagnostics, but it must remain constrained.
+
+Rules:
+
+- Metadata must be JSON-serializable.
+- Metadata size must be bounded per event and per audit row.
+- Metadata must not contain tokens, Authorization headers, channel secrets,
+  private keys, raw packet captures, or full private message text.
+- Metadata must not duplicate `text`; store hashes or short classifications
+  instead.
+- Each transport must document its metadata keys and whether they are stable,
+  sensitive, or diagnostic only.
+- Unknown metadata keys from external APIs should be dropped by default unless a
+  transport explicitly allowlists them.
+
+Initial MeshCore through Home Assistant metadata keys:
+
+- `ha_event_type`
+- `ha_context_id`
+- `message_type`
+- `pubkey_prefix_available`
+- `stable_sender`
+- `hop_count`
+- `snr`
+- `rx_log_count`
+
+Initial Telegram metadata keys:
+
+- `update_id`
+- `message_id`
+- `chat_type`
+- `has_thread_id`
+
+Telegram `text`, usernames, chat titles, and bot tokens must not be copied into
+metadata.
 
 ## Home Assistant's Role
 
@@ -427,7 +532,7 @@ Initial scope:
 
 - Long polling or webhook decision documented before implementation.
 - Receive text messages.
-- Map Telegram user ID to `telegram-user:<id>`.
+- Map Telegram user ID to `telegram-user:<bot-instance>:<id>`.
 - Map Telegram chat ID to `telegram:chat:<id>`.
 - Use the existing command prefix.
 - Support only `!ping` and `!help` initially.
@@ -443,6 +548,8 @@ Security rules:
 - Store Telegram bot token only in environment or external secrets.
 - Ignore non-text messages for the first milestone.
 - Treat group chats and private chats as different rooms.
+- Treat `sender_chat` as unsupported until a separate
+  `telegram_sender_chat_id` policy exists.
 
 ## PR Plan
 
@@ -458,6 +565,15 @@ Changes:
 - Keep the existing router behavior unchanged.
 - Add tests for MeshCore through Home Assistant and FakeTransport compatibility.
 
+Acceptance criteria:
+
+- Existing MeshCore through Home Assistant App tests still pass.
+- `!ping`, `!help`, `!estado ha`, and `!estado` behave the same as before.
+- The normalized model carries `schema_version`.
+- `source_room`, `reply_target`, and `sender` validate transport and instance
+  scope consistency.
+- No Home Assistant runtime imports are added to command router modules.
+
 Risk: low if the existing dataclasses remain available during migration.
 
 ### PR 2: Move Filtering and Authorization to Normalized Context
@@ -472,6 +588,15 @@ Changes:
 - Update deduplication to include `room_id`.
 - Update audit records with room and correlation fields.
 
+Acceptance criteria:
+
+- MeshCore channel `0` remains rejected for administration.
+- A message from a non-configured room is ignored before command execution.
+- Deduplication keys include `source_room.room_id`.
+- Audit stores `sender_ref_hash` rather than the raw stable sender ID.
+- The existing unidentified readonly testing behavior still works only for the
+  configured room.
+
 Risk: medium because it touches command ingress and audit.
 
 ### PR 3: Transport Capabilities and Response Profiles
@@ -484,6 +609,13 @@ Changes:
 - Add `ResponseProfile`.
 - Keep LoRa-short formatting for MeshCore.
 - Allow Telegram to use a larger default response size later.
+
+Acceptance criteria:
+
+- MeshCore responses keep the current LoRa-oriented length limit.
+- FakeTransport tests can set custom capabilities.
+- Command handlers do not branch on transport names.
+- Response formatting uses `ResponseProfile`, not direct MeshCore checks.
 
 Risk: low.
 
@@ -500,6 +632,16 @@ Changes:
 - Add tests with mocked Telegram API.
 - No bridging and no write commands.
 
+Acceptance criteria:
+
+- Telegram user identity is `telegram-user:<bot-instance>:<user-id>`.
+- Telegram chat identity is represented only as `RoomRef`.
+- Telegram `sender_chat` messages are ignored or marked unsupported unless a
+  dedicated `telegram_sender_chat_id` policy is added.
+- Bot token is loaded from environment or external secrets only.
+- Mocked tests cover long polling, send response, duplicate update handling,
+  and token redaction.
+
 Risk: medium due to API polling, token handling, and offset persistence.
 
 ### PR 5: Telegram Read-Only Commands
@@ -513,6 +655,16 @@ Changes:
 - Add audit tests for Telegram command execution.
 - Verify no Home Assistant runtime dependency in core.
 
+Acceptance criteria:
+
+- `!ping` returns `pong` from Telegram.
+- `!help` is generated from the same command registry used by MeshCore.
+- Unauthorized Telegram users receive the configured denial response.
+- Telegram and MeshCore commands share `CommandRouter`, `Authorizer`,
+  `Deduplicator`, `RateLimiter`, and audit storage.
+- No Home Assistant token or Supervisor runtime is required for Telegram-only
+  command routing tests.
+
 Risk: low to medium.
 
 ### PR 6: Bridging Design Only
@@ -525,6 +677,15 @@ Changes:
   and audit semantics.
 - Add tests for rule evaluation without sending real messages.
 - Do not forward messages yet.
+
+Acceptance criteria:
+
+- The document defines source rooms, reply targets, linked rooms, TTL,
+  correlation IDs, and loop prevention state.
+- Rule evaluation tests do not send messages through real transports.
+- No production code forwards Telegram messages to MeshCore or MeshCore messages
+  to Telegram.
+- Audit design covers bridged events without storing private text.
 
 Risk: low.
 
