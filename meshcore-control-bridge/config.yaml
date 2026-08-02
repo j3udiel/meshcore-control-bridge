@@ -1,14 +1,14 @@
 name: MeshCore Control Bridge
 slug: meshcore_control_bridge
 description: Offline command bridge between MeshCore and Home Assistant
-version: 0.1.0
+version: "0.1.0"
 startup: application
 boot: auto
 init: false
 homeassistant_api: true
 apparmor: meshcore-control-bridge
 stage: experimental
-image: ghcr.io/j3udiel/meshcore-control-bridge
+image: "ghcr.io/j3udiel/meshcore-control-bridge"
 arch:
   - amd64
   - aarch64
