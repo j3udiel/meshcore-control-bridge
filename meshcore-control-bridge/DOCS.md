@@ -69,11 +69,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.5`,
+The App version in `config.yaml` selects the image tag. For version `0.1.6`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.5
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.6
 ```
 
 If the image has not been published yet, installation from the public repository

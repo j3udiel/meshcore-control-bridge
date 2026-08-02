@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.6
 
-- Fix the GitHub Actions App publishing workflow so it builds
+- Hotfix the GitHub Actions App publishing workflow so it builds
   `meshcore-control-bridge/Dockerfile` instead of the standalone root
   `Dockerfile`.
 - Strengthen the built-image check so published App artifacts must keep the
