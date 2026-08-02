@@ -35,6 +35,7 @@ def test_legacy_inbound_message_gets_normalized_fields() -> None:
     assert message.message is not None
     assert message.message.message_id == "msg-1"
     assert message.message.origin.room_id == "fake:channel:1"
+    assert message.message.correlation_id.startswith("corr:")
 
 
 def test_inbound_message_accepts_explicit_source_room_and_reply_target() -> None:
@@ -144,19 +145,85 @@ def test_inbound_message_rejects_sender_transport_scope_mismatch() -> None:
         )
 
 
-def test_outbound_message_gets_reply_target_without_breaking_legacy_fields() -> None:
+def test_messages_without_message_id_get_distinct_correlation_ids() -> None:
+    first = InboundMessage(
+        transport="fake",
+        message_id=None,
+        sender_id="sender-1",
+        channel_index=1,
+        text="!ping",
+    )
+    second = InboundMessage(
+        transport="fake",
+        message_id=None,
+        sender_id="sender-1",
+        channel_index=1,
+        text="!ping",
+    )
+
+    assert first.message is not None
+    assert second.message is not None
+    assert first.message.message_id is None
+    assert second.message.message_id is None
+    assert first.message.id_kind == "missing"
+    assert second.message.id_kind == "missing"
+    assert first.message.correlation_id != second.message.correlation_id
+
+
+def test_metadata_is_defensively_copied() -> None:
+    metadata = {"channel_index": 1}
+    room = RoomRef(
+        transport="fake",
+        room_id="fake:channel:1",
+        room_kind="meshcore_channel",
+        metadata=metadata,
+    )
+
+    metadata["channel_index"] = 2
+
+    assert room.metadata["channel_index"] == 1
+    with pytest.raises(TypeError):
+        room.metadata["channel_index"] = 3  # type: ignore[index]
+
+
+def test_inbound_metadata_is_defensively_copied() -> None:
+    metadata = {"stable_sender": True}
+    message = InboundMessage(
+        transport="fake",
+        message_id="msg-1",
+        sender_id="sender-1",
+        channel_index=1,
+        text="!ping",
+        metadata=metadata,
+    )
+
+    metadata["stable_sender"] = False
+
+    assert message.metadata["stable_sender"] is True
+
+
+def test_outbound_message_keeps_legacy_reply_target_empty() -> None:
     outbound = OutboundMessage(
         destination="sender-1",
         channel_index=1,
         text="pong",
-        metadata={"transport": "fake"},
     )
 
     assert outbound.destination == "sender-1"
     assert outbound.channel_index == 1
-    assert outbound.reply_target is not None
-    assert outbound.reply_target.transport == "fake"
-    assert outbound.reply_target.room_id == "fake:channel:1"
+    assert outbound.reply_target is None
+
+
+def test_outbound_message_accepts_explicit_reply_target() -> None:
+    reply_target = RoomRef.channel(transport="fake", channel_index=1)
+    outbound = OutboundMessage(
+        destination="sender-1",
+        channel_index=1,
+        text="pong",
+        reply_target=reply_target,
+    )
+
+    assert outbound.reply_target == reply_target
 
 
 def test_metadata_must_be_json_serializable() -> None:
@@ -168,4 +235,19 @@ def test_metadata_must_be_json_serializable() -> None:
             channel_index=1,
             text="!ping",
             metadata={"bad": object()},
+        )
+
+
+def test_room_kind_rejects_known_invalid_values() -> None:
+    with pytest.raises(ValueError, match="room_kind"):
+        RoomRef(transport="fake", room_id="fake:room:1", room_kind="telegram_chat_id")
+
+
+def test_identity_kind_rejects_chat_as_normal_sender_identity() -> None:
+    with pytest.raises(ValueError, match="sender identity_kind"):
+        SenderIdentity(
+            sender_id="telegram:chat:123",
+            transport_scope="telegram",
+            identity_kind="telegram_chat_id",
+            stable=True,
         )

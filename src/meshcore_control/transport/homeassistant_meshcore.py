@@ -17,7 +17,6 @@ from meshcore_control.homeassistant_app import unidentified_testing_sender_id
 from meshcore_control.models import (
     InboundMessage,
     MessageIdentity,
-    MessageOrigin,
     OutboundMessage,
     RoomRef,
     SenderIdentity,
@@ -194,15 +193,11 @@ class HomeAssistantMeshCoreTransport:
             transport_scope=self.name,
         )
         message_id = self._message_id(event, data)
-        message_identity = MessageIdentity(
+        message_identity = MessageIdentity.from_message_id(
+            transport=self.name,
+            room_id=source_room.room_id,
             message_id=message_id,
             id_kind="platform" if event.context_id else "derived",
-            correlation_id=f"{self.name}:{message_id}",
-            origin=MessageOrigin(
-                transport=self.name,
-                room_id=source_room.room_id,
-                message_id=message_id,
-            ),
         )
         return InboundMessage(
             transport=self.name,

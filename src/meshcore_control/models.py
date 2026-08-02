@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 import json
+import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import MappingProxyType
 from typing import Any
 
 NORMALIZED_MESSAGE_SCHEMA_VERSION = 1
 MAX_METADATA_BYTES = 8192
+ROOM_KINDS = frozenset({"meshcore_channel", "telegram_chat", "direct", "local"})
+IDENTITY_KINDS = frozenset(
+    {
+        "meshcore_pubkey_prefix",
+        "meshcore_node_id",
+        "telegram_user_id",
+        "telegram_sender_chat_id",
+        "synthetic_test",
+        "unknown",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,13 +29,13 @@ class RoomRef:
     room_id: str
     room_kind: str
     display_name: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _validate_schema_text(self.transport, "room transport")
         _validate_schema_text(self.room_id, "room_id")
-        _validate_schema_text(self.room_kind, "room_kind")
-        _validate_metadata(self.metadata)
+        _validate_kind(self.room_kind, ROOM_KINDS, "room_kind")
+        object.__setattr__(self, "metadata", _copy_metadata(self.metadata))
 
     @classmethod
     def channel(cls, *, transport: str, channel_index: int) -> RoomRef:
@@ -40,13 +54,13 @@ class SenderIdentity:
     identity_kind: str
     stable: bool
     display_name: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _validate_schema_text(self.sender_id, "sender_id")
         _validate_schema_text(self.transport_scope, "sender transport_scope")
-        _validate_schema_text(self.identity_kind, "sender identity_kind")
-        _validate_metadata(self.metadata)
+        _validate_kind(self.identity_kind, IDENTITY_KINDS, "sender identity_kind")
+        object.__setattr__(self, "metadata", _copy_metadata(self.metadata))
 
     @classmethod
     def from_sender_id(cls, *, sender_id: str, transport_scope: str) -> SenderIdentity:
@@ -99,13 +113,13 @@ class MessageIdentity:
         transport: str,
         room_id: str,
         message_id: str | None,
+        id_kind: str | None = None,
     ) -> MessageIdentity:
-        id_kind = "platform" if message_id else "missing"
-        correlation_material = message_id or f"{transport}:{room_id}:missing"
+        resolved_id_kind = id_kind or ("platform" if message_id else "missing")
         return cls(
             message_id=message_id,
-            id_kind=id_kind,
-            correlation_id=f"{transport}:{correlation_material}",
+            id_kind=resolved_id_kind,
+            correlation_id=f"corr:{uuid.uuid4().hex}",
             origin=MessageOrigin(
                 transport=transport,
                 room_id=room_id,
@@ -122,7 +136,7 @@ class InboundMessage:
     channel_index: int
     text: str
     received_at: datetime = field(default_factory=lambda: datetime.now(UTC))
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     schema_version: int = NORMALIZED_MESSAGE_SCHEMA_VERSION
     source_room: RoomRef | None = None
     reply_target: RoomRef | None = None
@@ -133,7 +147,7 @@ class InboundMessage:
         _validate_schema_version(self.schema_version)
         _validate_schema_text(self.transport, "transport")
         _validate_schema_text(self.sender_id, "sender_id")
-        _validate_metadata(self.metadata)
+        object.__setattr__(self, "metadata", _copy_metadata(self.metadata))
         source_room = self.source_room or RoomRef.channel(
             transport=self.transport,
             channel_index=self.channel_index,
@@ -166,19 +180,14 @@ class OutboundMessage:
     channel_index: int
     text: str
     reply_to: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=dict)
     schema_version: int = NORMALIZED_MESSAGE_SCHEMA_VERSION
     reply_target: RoomRef | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
         _validate_schema_text(self.destination, "destination")
-        _validate_metadata(self.metadata)
-        reply_target = self.reply_target or RoomRef.channel(
-            transport=str(self.metadata.get("transport", "legacy")),
-            channel_index=self.channel_index,
-        )
-        object.__setattr__(self, "reply_target", reply_target)
+        object.__setattr__(self, "metadata", _copy_metadata(self.metadata))
 
 
 def _validate_transport_consistency(
@@ -206,12 +215,23 @@ def _validate_schema_text(value: str, name: str) -> None:
         raise ValueError(f"{name} must be a non-empty string")
 
 
-def _validate_metadata(metadata: dict[str, Any]) -> None:
-    if not isinstance(metadata, dict):
-        raise ValueError("metadata must be a dictionary")
+def _validate_kind(value: str, allowed: frozenset[str], name: str) -> None:
+    _validate_schema_text(value, name)
+    if value in allowed or value.startswith("custom:"):
+        return
+    raise ValueError(f"{name} is not supported: {value}")
+
+
+def _copy_metadata(metadata: Mapping[str, Any]) -> Mapping[str, Any]:
+    if not isinstance(metadata, Mapping):
+        raise ValueError("metadata must be a mapping")
     try:
         encoded = json.dumps(metadata, ensure_ascii=True, sort_keys=True).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise ValueError("metadata must be JSON-serializable") from exc
     if len(encoded) > MAX_METADATA_BYTES:
         raise ValueError("metadata exceeds maximum size")
+    copied = json.loads(encoded.decode("utf-8"))
+    if not isinstance(copied, dict):
+        raise ValueError("metadata must be a mapping")
+    return MappingProxyType(copied)
