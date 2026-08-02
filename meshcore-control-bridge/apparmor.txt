@@ -1,0 +1,22 @@
+#include <tunables/global>
+
+profile meshcore-control-bridge flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/python>
+
+  network inet stream,
+  network inet6 stream,
+
+  /run.sh ix,
+  /usr/bin/python3 ix,
+  /usr/lib/python3*/** r,
+  /usr/lib/python3*/** mr,
+  /app/** r,
+  /data/** rwk,
+
+  deny /dev/** rwklx,
+  deny /var/run/docker.sock rwklx,
+  deny /config/** rwklx,
+}
+

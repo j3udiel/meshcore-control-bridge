@@ -14,10 +14,14 @@ class FakeHaWsClient:
     def __init__(self, events: list[HomeAssistantEvent] | None = None) -> None:
         self._events = events or []
         self.service_calls: list[tuple[str, str, dict[str, object], bool]] = []
+        self.config_entries: list[dict[str, object]] = []
 
     async def events(self, event_types: list[str]):
         for event in self._events:
             yield event
+
+    async def get_config_entries(self) -> list[dict[str, object]]:
+        return self.config_entries
 
     async def call_service(
         self,
@@ -195,3 +199,29 @@ def test_ha_meshcore_send_uses_official_channel_service() -> None:
             False,
         )
     ]
+
+
+def test_ha_meshcore_rejects_multiple_entries_without_selection() -> None:
+    client = FakeHaWsClient()
+    client.config_entries = [
+        {"domain": "meshcore", "entry_id": "one"},
+        {"domain": "meshcore", "entry_id": "two"},
+    ]
+    transport = HomeAssistantMeshCoreTransport(
+        settings=HomeAssistantMeshCoreSettings(
+            channel_index=1,
+            ha_base_url="http://homeassistant.local:8123",
+            ha_token="test-token-not-real",
+        ),
+        websocket_client=client,  # type: ignore[arg-type]
+    )
+
+    async def send() -> None:
+        await transport.send(OutboundMessage(destination="sender", channel_index=1, text="pong"))
+
+    try:
+        asyncio.run(send())
+    except RuntimeError as exc:
+        assert "multiple MeshCore" in str(exc)
+    else:
+        raise AssertionError("expected multiple entry failure")

@@ -40,6 +40,9 @@ jobs:
       - name: Secret check
         run: bash scripts/check-secrets.sh
 
+      - name: Home Assistant App check
+        run: bash scripts/check-home-assistant-app.sh
+
       - name: Ruff
         run: python -m ruff check .
 
