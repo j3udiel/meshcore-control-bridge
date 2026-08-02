@@ -6,8 +6,9 @@ startup: application
 boot: auto
 init: false
 homeassistant_api: true
-watchdog: true
 apparmor: meshcore-control-bridge
+stage: experimental
+image: ghcr.io/j3udiel/meshcore-control-bridge
 arch:
   - amd64
   - aarch64
@@ -20,8 +21,8 @@ options:
   rate_limit:
     commands: 5
     window_seconds: 60
-  log_level: info
-  allow_unidentified_readonly_testing: false
+  log_level: debug
+  allow_unidentified_readonly_testing: true
 schema:
   channel_index: "int(1,255)"
   meshcore_entry_id: "str?"
@@ -39,4 +40,3 @@ schema:
     window_seconds: "int(1,3600)"
   log_level: "list(debug|info|warning|error)"
   allow_unidentified_readonly_testing: bool
-

@@ -1,5 +1,4 @@
-ARG BUILD_FROM=ghcr.io/home-assistant/base:latest
-FROM ${BUILD_FROM}
+FROM ghcr.io/home-assistant/base:latest
 
 ARG BUILD_VERSION=0.1.0
 ARG BUILD_ARCH=amd64
@@ -10,7 +9,10 @@ WORKDIR /app
 LABEL \
   io.hass.version="${BUILD_VERSION}" \
   io.hass.type="app" \
-  io.hass.arch="${BUILD_ARCH}"
+  io.hass.arch="${BUILD_ARCH}" \
+  org.opencontainers.image.source="https://github.com/j3udiel/meshcore-control-bridge" \
+  org.opencontainers.image.licenses="Apache-2.0" \
+  org.opencontainers.image.description="Offline command bridge between MeshCore and Home Assistant"
 
 RUN apk add --no-cache python3 py3-pip
 

@@ -32,13 +32,26 @@ def test_homeassistant_app_config_is_restricted() -> None:
     config = yaml.safe_load((ROOT / "meshcore-control-bridge/config.yaml").read_text())
 
     assert config["homeassistant_api"] is True
-    assert config["watchdog"] is True
+    assert config["stage"] == "experimental"
+    assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
     assert config["schema"]["channel_index"] == "int(1,255)"
+    assert config["options"]["allow_unidentified_readonly_testing"] is True
+    assert config["options"]["log_level"] == "debug"
     assert "privileged" not in config
     assert "host_network" not in config
     assert "docker_api" not in config
     assert "usb" not in config
     assert "uart" not in config
+
+
+def test_only_app_directory_contains_supervisor_config_yaml() -> None:
+    config_paths = {
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.rglob("config.yaml")
+        if ".git" not in path.parts
+    }
+
+    assert config_paths == {"meshcore-control-bridge/config.yaml"}
 
 
 def test_homeassistant_app_run_script_is_executable() -> None:

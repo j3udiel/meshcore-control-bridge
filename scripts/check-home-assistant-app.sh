@@ -42,7 +42,8 @@ assert repo["name"] == "MeshCore Control Bridge Apps"
 config = yaml.safe_load(Path("meshcore-control-bridge/config.yaml").read_text(encoding="utf-8"))
 assert config["slug"] == "meshcore_control_bridge"
 assert config["homeassistant_api"] is True
-assert config["watchdog"] is True
+assert config["stage"] == "experimental"
+assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
 assert "privileged" not in config
 assert "host_network" not in config
 assert "docker_api" not in config
@@ -51,7 +52,15 @@ assert "uart" not in config
 assert config["schema"]["channel_index"] == "int(1,255)"
 assert config["options"]["channel_index"] == 1
 assert config["options"]["authorized_senders"] == []
+assert config["options"]["allow_unidentified_readonly_testing"] is True
+assert config["options"]["log_level"] == "debug"
 PY
+
+if find . -path ./.git -prune -o -path ./meshcore-control-bridge/config.yaml -prune -o -name config.yaml -print | grep -q .; then
+  printf '%s\n' "unexpected recursive config.yaml outside the Home Assistant App directory" >&2
+  find . -path ./.git -prune -o -path ./meshcore-control-bridge/config.yaml -prune -o -name config.yaml -print >&2
+  exit 1
+fi
 
 grep -q 'SUPERVISOR_TOKEN' meshcore-control-bridge/run.sh
 grep -q 'python3 -m meshcore_control.main --home-assistant-app' meshcore-control-bridge/run.sh

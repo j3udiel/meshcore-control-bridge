@@ -30,7 +30,7 @@ is_excluded_file() {
     ./__pycache__/*|*/__pycache__/*|*.pyc)
       return 0
       ;;
-    ./.env.example|./config.example.yaml|./examples/config.yaml|./examples/systemd.env.example)
+    ./.env.example|./config.example.yaml|./examples/config.example.yaml|./examples/systemd.env.example)
       return 0
       ;;
     ./meshcore-control-bridge/config.yaml|./home-assistant-addon/*/config.yaml)

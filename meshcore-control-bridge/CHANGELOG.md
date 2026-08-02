@@ -7,4 +7,4 @@
 - Listens to `meshcore_message` events.
 - Replies with `meshcore.send_channel_message`.
 - Persists audit data in `/data/audit.db`.
-
+- Declares the public GHCR image reference for repository-based installation.

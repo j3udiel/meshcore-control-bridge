@@ -176,6 +176,36 @@ python -m pytest
 bash scripts/check-secrets.sh
 ```
 
+## Home Assistant App Installation
+
+The planned primary deployment mode is a Home Assistant App that uses
+`SUPERVISOR_TOKEN` and the internal Home Assistant API proxy. It does not require
+a manually configured Home Assistant Long-Lived Access Token.
+
+Home Assistant discovers Apps from the default branch of a GitHub repository.
+After the Home Assistant App PR is merged into the repository default branch and
+the GHCR image is published, install it from:
+
+```text
+Settings -> Apps -> Repositories -> Add
+```
+
+Repository URL:
+
+```text
+https://github.com/j3udiel/meshcore-control-bridge
+```
+
+The App is stored directly under `meshcore-control-bridge/` and references:
+
+```text
+ghcr.io/j3udiel/meshcore-control-bridge
+```
+
+For the first readonly test, use `allow_unidentified_readonly_testing: true` and
+`log_level: debug`. Disable unidentified testing after you obtain a stable
+`pubkey_prefix` for the authorized sender. Do not use channel `0`.
+
 ## Configuration
 
 Use `config.example.yaml` and `.env.example` as templates. Do not commit real
