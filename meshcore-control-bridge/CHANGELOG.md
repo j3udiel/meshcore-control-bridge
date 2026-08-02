@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.5
+
+- Remove the duplicated vendored Python package from the App directory.
+- Build the App image from the repository root `pyproject.toml` and canonical
+  `src/` tree.
+- Add artifact checks so the built image must contain the current package
+  version, unidentified readonly sender, authorization logs, WebSocket idle
+  heartbeat hook, and healthcheck code.
+- Add an image-level unidentified readonly authorization smoke test.
+
 ## 0.1.4
 
 - Make `allow_unidentified_readonly_testing` grant a temporary readonly sender

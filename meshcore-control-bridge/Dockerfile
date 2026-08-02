@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=0.1.4
+ARG BUILD_VERSION=0.1.5
 ARG BUILD_ARCH=amd64
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -16,10 +16,11 @@ LABEL \
 
 RUN apk add --no-cache python3 py3-pip
 
-COPY package /app/package
+COPY pyproject.toml README.md /app/package/
+COPY src /app/package/src
 RUN pip3 install --break-system-packages --no-cache-dir /app/package
 
-COPY run.sh /run.sh
+COPY meshcore-control-bridge/run.sh /run.sh
 RUN chmod a+x /run.sh
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

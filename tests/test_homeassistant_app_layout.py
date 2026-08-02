@@ -21,10 +21,11 @@ def test_homeassistant_app_repository_layout() -> None:
         "CHANGELOG.md",
         "translations/en.yaml",
         "translations/es.yaml",
-        "package/pyproject.toml",
-        "package/src/meshcore_control/main.py",
     ]:
         assert (app_dir / name).is_file()
+    assert not (app_dir / "package").exists()
+    assert not (app_dir / "package.pyproject.toml").exists()
+    assert not (ROOT / "scripts/sync-home-assistant-app-package.sh").exists()
 
 
 def test_homeassistant_app_config_is_restricted() -> None:
@@ -47,7 +48,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
     }
 
     assert set(config) <= allowed_config_keys
-    assert config["version"] == "0.1.4"
+    assert config["version"] == "0.1.5"
     assert config["homeassistant_api"] is True
     assert config["stage"] == "experimental"
     assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
