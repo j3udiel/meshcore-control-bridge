@@ -51,8 +51,21 @@ def inbound(
     )
 
 
-def deduplicator(connection: sqlite3.Connection, *, window_seconds: int = 300) -> Deduplicator:
-    return Deduplicator(connection, window_seconds=window_seconds)
+class FakeClock:
+    def __init__(self, now: float) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def deduplicator(
+    connection: sqlite3.Connection,
+    *,
+    window_seconds: int = 300,
+    clock: FakeClock | None = None,
+) -> Deduplicator:
+    return Deduplicator(connection, window_seconds=window_seconds, clock=clock)
 
 
 def test_same_platform_message_id_room_and_sender_is_duplicate(tmp_path) -> None:
@@ -86,21 +99,74 @@ def test_same_text_without_message_id_inside_window_is_duplicate(tmp_path) -> No
     assert dedup.seen_or_store(second) is True
 
 
-def test_same_text_without_message_id_outside_window_is_not_duplicate(tmp_path) -> None:
-    dedup = deduplicator(connect_database(str(tmp_path / "audit.db")), window_seconds=60)
+def test_same_text_across_old_bucket_boundary_inside_real_window_is_duplicate(tmp_path) -> None:
+    clock = FakeClock(datetime(2026, 8, 2, 10, 4, 59, tzinfo=UTC).timestamp())
+    dedup = deduplicator(
+        connect_database(str(tmp_path / "audit.db")),
+        window_seconds=300,
+        clock=clock,
+    )
     first = inbound(
         message_id=None,
         text="!ping private-text",
-        received_at=datetime(2026, 8, 2, 10, 0, tzinfo=UTC),
+        received_at=datetime(2026, 8, 2, 10, 4, 59, tzinfo=UTC),
     )
     second = inbound(
         message_id=None,
         text="!ping private-text",
-        received_at=datetime(2026, 8, 2, 10, 2, tzinfo=UTC),
+        received_at=datetime(2026, 8, 2, 10, 5, 1, tzinfo=UTC),
     )
 
     assert dedup.seen_or_store(first) is False
-    assert dedup.seen_or_store(second) is False
+    clock.now = datetime(2026, 8, 2, 10, 5, 1, tzinfo=UTC).timestamp()
+    assert dedup.seen_or_store(second) is True
+
+
+def test_same_key_just_before_expires_at_is_duplicate(tmp_path) -> None:
+    clock = FakeClock(1000.0)
+    dedup = deduplicator(
+        connect_database(str(tmp_path / "audit.db")),
+        window_seconds=60,
+        clock=clock,
+    )
+    message = inbound(message_id=None, text="!ping private-text")
+
+    assert dedup.seen_or_store(message) is False
+    clock.now = 1059.999
+    assert dedup.seen_or_store(message) is True
+
+
+def test_same_key_after_expires_at_is_allowed_again(tmp_path) -> None:
+    clock = FakeClock(1000.0)
+    dedup = deduplicator(
+        connect_database(str(tmp_path / "audit.db")),
+        window_seconds=60,
+        clock=clock,
+    )
+    message = inbound(message_id=None, text="!ping private-text")
+
+    assert dedup.seen_or_store(message) is False
+    clock.now = 1060.001
+    assert dedup.seen_or_store(message) is False
+
+
+def test_received_at_does_not_control_operational_window(tmp_path) -> None:
+    clock = FakeClock(1000.0)
+    dedup = deduplicator(
+        connect_database(str(tmp_path / "audit.db")),
+        window_seconds=60,
+        clock=clock,
+    )
+    old_received_at = datetime(2020, 1, 1, tzinfo=UTC)
+    future_received_at = datetime(2030, 1, 1, tzinfo=UTC)
+
+    assert dedup.seen_or_store(
+        inbound(message_id=None, text="!ping private-text", received_at=old_received_at)
+    ) is False
+    clock.now = 1001.0
+    assert dedup.seen_or_store(
+        inbound(message_id=None, text="!ping private-text", received_at=future_received_at)
+    ) is True
 
 
 def test_correlation_id_does_not_affect_duplicate_detection(tmp_path) -> None:

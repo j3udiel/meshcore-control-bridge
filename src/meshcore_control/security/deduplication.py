@@ -3,17 +3,25 @@ from __future__ import annotations
 import hashlib
 import sqlite3
 import time
+from collections.abc import Callable
 
 from meshcore_control.models import InboundMessage
 
 
 class Deduplicator:
-    def __init__(self, connection: sqlite3.Connection, *, window_seconds: int) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        window_seconds: int,
+        clock: Callable[[], float] | None = None,
+    ) -> None:
         self.connection = connection
         self.window_seconds = window_seconds
+        self.clock = clock or time.time
 
     def seen_or_store(self, message: InboundMessage) -> bool:
-        now = time.time()
+        now = self.clock()
         self.connection.execute("DELETE FROM deduplication_keys WHERE expires_at < ?", (now,))
         key = self._key(message)
         keys = (key, *self._legacy_keys(message))
@@ -51,10 +59,9 @@ class Deduplicator:
                 f"{_hash_private(sender_id)}:{platform_message_id}"
             )
         else:
-            bucket = int(message.received_at.timestamp() // self.window_seconds)
             material = (
                 f"hash:v2:{source_transport}:{room_id}:"
-                f"{_hash_private(sender_id)}:{bucket}:{_hash_private(_normalize_text(message.text))}"
+                f"{_hash_private(sender_id)}:{_hash_private(_normalize_text(message.text))}"
             )
         return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
