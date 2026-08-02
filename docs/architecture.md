@@ -1,7 +1,8 @@
 # Architecture
 
 `meshcore-control-bridge` separates transport, routing, authorization, adapters,
-and storage so command logic does not depend directly on MeshCore.
+and storage so command logic does not depend directly on MeshCore or Home
+Assistant.
 
 ```mermaid
 flowchart TD
@@ -62,3 +63,14 @@ the inbound table.
 Future providers may include Proxmox, Docker through a restricted API or socket
 proxy, MQTT, Prometheus, or allow-listed local scripts. They must not expose
 generic shell access.
+
+## Multiplatform Direction
+
+Home Assistant is a deployment runtime and adapter, not the center of the
+system. The target architecture is a room-based model where MeshCore through
+Home Assistant, Telegram, CLI, and future transports normalize inbound messages
+before they reach the same command router.
+
+See [multiplatform-room-architecture.md](multiplatform-room-architecture.md)
+for the proposed message, identity, room, authorization, deduplication, loop
+prevention, and PR plan.
