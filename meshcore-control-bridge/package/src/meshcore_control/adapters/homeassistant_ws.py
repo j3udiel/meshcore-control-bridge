@@ -35,6 +35,7 @@ class HomeAssistantWebSocketClient:
     max_message_bytes: int = 262_144
     websocket_url_override: str | None = None
     on_subscribed: Any | None = None
+    on_idle: Any | None = None
     _message_id: int = field(default=0, init=False)
 
     def websocket_url(self) -> str:
@@ -75,7 +76,15 @@ class HomeAssistantWebSocketClient:
                     self.on_subscribed()
 
                 while True:
-                    payload = await self._recv_json(websocket, timeout=None)
+                    try:
+                        payload = await self._recv_json(
+                            websocket,
+                            timeout=self.timeout_seconds,
+                        )
+                    except TimeoutError:
+                        if self.on_idle is not None:
+                            self.on_idle()
+                        continue
                     if payload.get("type") != "event":
                         continue
                     event = payload.get("event")

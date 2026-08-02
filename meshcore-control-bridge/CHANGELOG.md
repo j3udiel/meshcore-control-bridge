@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.4
+
+- Make `allow_unidentified_readonly_testing` grant a temporary readonly sender
+  with the reserved ID `test:unidentified:channel:<channel>`.
+- Stop deriving unidentified authorization from visible MeshCore sender names.
+- Allow `!ping`, `!help`, `!estado`, and `!estado ha` in unidentified readonly
+  testing mode.
+- Keep unidentified testing scoped to the configured channel and readonly
+  commands only.
+- Refresh the App healthcheck during idle WebSocket periods so it does not
+  expire only because no MeshCore messages arrive.
+- Add safe command-flow logs for receive, authorization, duplicate, rate limit,
+  and response service-call outcomes.
+
 ## 0.1.3
 
 - Keep Home Assistant WebSocket event subscriptions open during idle periods.

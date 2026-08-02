@@ -24,6 +24,10 @@ APP_DATABASE_PATH = "/data/audit.db"
 APP_HEALTHCHECK_PATH = "/data/health.json"
 
 
+def unidentified_testing_sender_id(channel_index: int) -> str:
+    return f"test:unidentified:channel:{channel_index}"
+
+
 @dataclass(frozen=True, slots=True)
 class HomeAssistantRuntime:
     rest_base_url: str
@@ -125,8 +129,8 @@ class HomeAssistantAppOptions:
             for sender in self.authorized_senders
         }
         if self.allow_unidentified_readonly_testing:
-            users[f"meshcore-ha:channel:{self.channel_index}:unknown"] = AuthorizedUser(
-                sender_id=f"meshcore-ha:channel:{self.channel_index}:unknown",
+            users[unidentified_testing_sender_id(self.channel_index)] = AuthorizedUser(
+                sender_id=unidentified_testing_sender_id(self.channel_index),
                 name="unidentified-channel-testing",
                 role=Role.readonly,
             )

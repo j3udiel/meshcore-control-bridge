@@ -143,7 +143,7 @@ def test_help_is_generated_from_registry(tmp_path) -> None:
     outbound = asyncio.run(service.process_message(message("!help", message_id="help-1")))
 
     assert outbound is not None
-    assert "COMANDOS" in outbound.text
+    assert "MeshCore Bridge" in outbound.text
     assert "!ping" in outbound.text
     assert "!estado" in outbound.text
     assert transport.sent[-1].text == outbound.text

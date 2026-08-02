@@ -14,7 +14,7 @@ def render_help(registry: CommandRegistry, role: Role, group: str | None = None)
         lines.extend(definition.usage for definition in commands)
         return "\n".join(lines[:8])
 
-    lines = ["COMANDOS"]
+    lines = ["MeshCore Bridge"]
     lines.extend(definition.usage for definition in commands[:6])
     groups = sorted({definition.group for definition in commands})
     if groups:

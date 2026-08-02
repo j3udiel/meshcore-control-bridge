@@ -13,6 +13,7 @@ from meshcore_control.adapters.homeassistant_ws import (
     HomeAssistantEvent,
     HomeAssistantWebSocketClient,
 )
+from meshcore_control.homeassistant_app import unidentified_testing_sender_id
 from meshcore_control.models import InboundMessage, OutboundMessage
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,7 @@ class HomeAssistantMeshCoreTransport:
         )
         self._event_iterator: Any | None = None
         self._resolved_entry_id: str | None = settings.ha_entry_id
+        self.client.on_idle = self._mark_subscribed
         logger.info("Listening for MeshCore messages on channel %s", settings.channel_index)
         if settings.allow_channel_without_sender:
             logger.warning("Unidentified readonly testing is enabled")
@@ -91,11 +93,24 @@ class HomeAssistantMeshCoreTransport:
         }
         if self._resolved_entry_id:
             payload["entry_id"] = self._resolved_entry_id
-        await self.client.call_service(
-            "meshcore",
+        try:
+            await self.client.call_service(
+                "meshcore",
+                MESHCORE_SEND_CHANNEL_SERVICE,
+                payload,
+                return_response=False,
+            )
+        except Exception:
+            logger.warning(
+                "MeshCore response service call failed channel=%s service=meshcore.%s",
+                message.channel_index,
+                MESHCORE_SEND_CHANNEL_SERVICE,
+            )
+            raise
+        logger.info(
+            "MeshCore response service call succeeded channel=%s service=meshcore.%s",
+            message.channel_index,
             MESHCORE_SEND_CHANNEL_SERVICE,
-            payload,
-            return_response=False,
         )
 
     async def close(self) -> None:
@@ -127,6 +142,7 @@ class HomeAssistantMeshCoreTransport:
         if data.get("message_type") != "channel":
             return None
         if int(data.get("channel_idx", -1)) != self.settings.channel_index:
+            logger.info("MeshCore channel message ignored: reason=wrong_channel")
             return None
 
         text = str(data.get("message", "")).strip()
@@ -134,10 +150,19 @@ class HomeAssistantMeshCoreTransport:
             return None
 
         sender_id = self._sender_id(data)
-        stable_sender = not sender_id.startswith("meshcore-ha:channel:")
+        stable_sender = _has_stable_sender(data)
         if self.settings.require_stable_sender and not stable_sender:
-            logger.warning("Ignoring MeshCore HA channel message without stable sender identity")
+            logger.warning(
+                "MeshCore channel message ignored: reason=unidentified_testing_disabled "
+                "channel=%s identity=unidentified",
+                self.settings.channel_index,
+            )
             return None
+        logger.info(
+            "MeshCore channel message received channel=%s identity=%s",
+            self.settings.channel_index,
+            "stable" if stable_sender else "unidentified",
+        )
 
         received_at = _parse_time(event.time_fired) or datetime.now(UTC)
         metadata = {
@@ -168,9 +193,7 @@ class HomeAssistantMeshCoreTransport:
         if isinstance(pubkey_prefix, str) and len(pubkey_prefix) >= 6:
             return f"meshcore-pubkey-prefix:{pubkey_prefix.lower()}"
         if self.settings.allow_channel_without_sender:
-            sender_name = data.get("sender_name")
-            label = sender_name if isinstance(sender_name, str) and sender_name else "unknown"
-            return f"meshcore-ha:channel:{self.settings.channel_index}:{label}"
+            return unidentified_testing_sender_id(self.settings.channel_index)
         return f"meshcore-ha:channel:{self.settings.channel_index}:unknown"
 
     def _message_id(self, event: HomeAssistantEvent, data: dict[str, Any]) -> str:
@@ -216,3 +239,8 @@ def _redact_identifier(value: str) -> str:
     if len(value) <= 8:
         return "***"
     return f"{value[:4]}...{value[-4:]}"
+
+
+def _has_stable_sender(data: dict[str, Any]) -> bool:
+    pubkey_prefix = data.get("pubkey_prefix")
+    return isinstance(pubkey_prefix, str) and len(pubkey_prefix) >= 6

@@ -50,7 +50,7 @@ def register(registry: CommandRegistry) -> None:
             name="estado",
             aliases=("status",),
             group="system",
-            usage="!estado",
+            usage="!estado\n!estado ha",
             help_text="Resumen corto de disponibilidad.",
             minimum_role=Role.readonly,
             confirmation_required=False,

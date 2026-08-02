@@ -1,6 +1,6 @@
 FROM ghcr.io/home-assistant/base:latest
 
-ARG BUILD_VERSION=0.1.3
+ARG BUILD_VERSION=0.1.4
 ARG BUILD_ARCH=amd64
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
