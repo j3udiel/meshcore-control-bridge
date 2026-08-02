@@ -69,11 +69,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.0`,
+The App version in `config.yaml` selects the image tag. For version `0.1.1`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.0
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.1
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -113,3 +113,8 @@ will not execute commands until you configure at least one sender.
 `allow_unidentified_readonly_testing` is for diagnostics only. When enabled,
 messages without `pubkey_prefix` can be processed as readonly from the configured
 channel. Leave it disabled for normal use.
+
+The App includes `apparmor.txt`; no explicit `apparmor` key is needed in
+`config.yaml`. Supervisor `watchdog` is intentionally not declared until the App
+exposes an HTTP or TCP endpoint compatible with Supervisor watchdog checks. The
+Docker `HEALTHCHECK` remains internal container health metadata.

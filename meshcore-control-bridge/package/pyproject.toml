@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshcore-control-bridge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Home Assistant App for MeshCore Control Bridge"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,4 +23,3 @@ meshcore-control-bridge = "meshcore_control.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

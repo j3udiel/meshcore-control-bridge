@@ -31,10 +31,32 @@ def test_homeassistant_app_repository_layout() -> None:
 def test_homeassistant_app_config_is_restricted() -> None:
     config = yaml.safe_load((ROOT / "meshcore-control-bridge/config.yaml").read_text())
 
+    allowed_config_keys = {
+        "name",
+        "slug",
+        "description",
+        "version",
+        "startup",
+        "boot",
+        "init",
+        "homeassistant_api",
+        "stage",
+        "image",
+        "arch",
+        "options",
+        "schema",
+    }
+
+    assert set(config) <= allowed_config_keys
+    assert config["version"] == "0.1.1"
     assert config["homeassistant_api"] is True
     assert config["stage"] == "experimental"
     assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
+    assert config["arch"] == ["amd64", "aarch64"]
     assert config["schema"]["channel_index"] == "int(1,255)"
+    assert config["schema"]["authorized_senders"][0]["role"] == (
+        "list(readonly|home|operator|admin)"
+    )
     assert config["options"]["allow_unidentified_readonly_testing"] is True
     assert config["options"]["log_level"] == "debug"
     assert "privileged" not in config
@@ -42,6 +64,8 @@ def test_homeassistant_app_config_is_restricted() -> None:
     assert "docker_api" not in config
     assert "usb" not in config
     assert "uart" not in config
+    assert "apparmor" not in config
+    assert "watchdog" not in config
 
 
 def test_only_app_directory_contains_supervisor_config_yaml() -> None:
