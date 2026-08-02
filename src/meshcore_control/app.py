@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.models import InboundMessage, OutboundMessage
 from meshcore_control.security.deduplication import Deduplicator
 from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.transport.base import Transport
+
+logger = logging.getLogger(__name__)
 
 
 class BridgeService:
@@ -25,10 +29,13 @@ class BridgeService:
 
     async def process_message(self, message: InboundMessage) -> OutboundMessage | None:
         if message.channel_index != self.channel_index:
+            logger.info("Message ignored reason=wrong_channel channel=%s", message.channel_index)
             return None
         if self.deduplicator.seen_or_store(message):
+            logger.info("Message ignored reason=duplicate channel=%s", message.channel_index)
             return None
         if not self.rate_limiter.allow(message.sender_id):
+            logger.warning("Message rejected reason=rate_limited channel=%s", message.channel_index)
             outbound = OutboundMessage(
                 destination=message.sender_id,
                 channel_index=self.channel_index,
@@ -47,6 +54,7 @@ class BridgeService:
             reply_to=message.message_id,
         )
         await self.transport.send(outbound)
+        logger.info("Response sent channel=%s", outbound.channel_index)
         return outbound
 
     async def run_forever(self) -> None:

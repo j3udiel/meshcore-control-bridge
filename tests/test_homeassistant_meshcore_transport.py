@@ -173,7 +173,7 @@ def test_ha_meshcore_can_allow_channel_without_sender_for_testing() -> None:
     )
 
     assert inbound is not None
-    assert inbound.sender_id == "meshcore-ha:channel:1:admin-device"
+    assert inbound.sender_id == "test:unidentified:channel:1"
     assert inbound.metadata["stable_sender"] is False
 
 

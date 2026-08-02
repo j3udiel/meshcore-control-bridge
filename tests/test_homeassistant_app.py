@@ -14,6 +14,7 @@ from meshcore_control.homeassistant_app import (
     HomeAssistantAppOptions,
     HomeAssistantRuntime,
     load_homeassistant_app_config,
+    unidentified_testing_sender_id,
 )
 
 
@@ -124,7 +125,7 @@ def test_homeassistant_app_testing_mode_adds_readonly_synthetic_sender() -> None
 
     config = options.to_app_config(runtime)
 
-    user = config.users["meshcore-ha:channel:1:unknown"]
+    user = config.users[unidentified_testing_sender_id(1)]
     assert user.role is Role.readonly
     assert config.meshcore.require_stable_sender is False
 
