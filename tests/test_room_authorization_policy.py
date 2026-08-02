@@ -168,6 +168,27 @@ def test_room_disabled_is_ignored_before_command_execution(tmp_path) -> None:
     assert audit.count_commands() == 0
 
 
+def test_room_with_commands_disabled_is_ignored_before_command_execution(tmp_path) -> None:
+    service, transport, audit = build_service(
+        connect_database(str(tmp_path / "audit.db")),
+        users={SENDER_ID: AuthorizedUser(SENDER_ID, "admin-device", Role.admin)},
+        room_policies={
+            ROOM_ID: RoomPolicy(
+                room_id=ROOM_ID,
+                enabled=True,
+                minimum_role=Role.readonly,
+                allow_commands=False,
+            )
+        },
+    )
+
+    outbound = asyncio.run(service.process_message(inbound("!ping")))
+
+    assert outbound is None
+    assert transport.sent == []
+    assert audit.count_commands() == 0
+
+
 def test_sender_role_room_policy_and_command_role_precedence(tmp_path) -> None:
     service, transport, _audit = build_service(
         connect_database(str(tmp_path / "audit.db")),
