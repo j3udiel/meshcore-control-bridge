@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- Remove the custom `apparmor.txt` profile for the experimental App.
+- Let Home Assistant Supervisor apply its default AppArmor profile so the
+  `ghcr.io/home-assistant/base` `/init` and S6 startup path can run.
+- Keep `init: false` because the base image provides its own init system.
+
 ## 0.1.1
 
 - Remove Supervisor `apparmor` configuration from `config.yaml`; the custom

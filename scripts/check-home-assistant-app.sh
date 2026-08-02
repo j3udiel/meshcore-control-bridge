@@ -13,7 +13,6 @@ required_files=(
   meshcore-control-bridge/README.md
   meshcore-control-bridge/DOCS.md
   meshcore-control-bridge/CHANGELOG.md
-  meshcore-control-bridge/apparmor.txt
   meshcore-control-bridge/translations/en.yaml
   meshcore-control-bridge/translations/es.yaml
   meshcore-control-bridge/package/pyproject.toml
@@ -59,7 +58,7 @@ config = yaml.safe_load(Path("meshcore-control-bridge/config.yaml").read_text(en
 unknown = set(config) - ALLOWED_CONFIG_KEYS
 assert not unknown, f"unknown or intentionally disallowed App config keys: {sorted(unknown)}"
 assert config["slug"] == "meshcore_control_bridge"
-assert config["version"] == "0.1.1"
+assert config["version"] == "0.1.2"
 assert config["homeassistant_api"] is True
 assert config["stage"] == "experimental"
 assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
@@ -78,6 +77,18 @@ assert config["options"]["allow_unidentified_readonly_testing"] is True
 assert config["options"]["log_level"] == "debug"
 assert config["schema"]["authorized_senders"][0]["role"] == "list(readonly|home|operator|admin)"
 PY
+
+if [[ -f meshcore-control-bridge/apparmor.txt ]]; then
+  printf '%s\n' "custom AppArmor profile is intentionally omitted for this App version" >&2
+  exit 1
+fi
+
+if grep -q '^ENTRYPOINT' meshcore-control-bridge/Dockerfile; then
+  printf '%s\n' "Dockerfile must not override the Home Assistant base image ENTRYPOINT" >&2
+  exit 1
+fi
+
+grep -q 'CMD \["/run.sh"\]' meshcore-control-bridge/Dockerfile
 
 if find . -path ./.git -prune -o -path ./meshcore-control-bridge/config.yaml -prune -o -name config.yaml -print | grep -q .; then
   printf '%s\n' "unexpected recursive config.yaml outside the Home Assistant App directory" >&2

@@ -69,11 +69,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.1`,
+The App version in `config.yaml` selects the image tag. For version `0.1.2`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.1
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.2
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -114,7 +114,11 @@ will not execute commands until you configure at least one sender.
 messages without `pubkey_prefix` can be processed as readonly from the configured
 channel. Leave it disabled for normal use.
 
-The App includes `apparmor.txt`; no explicit `apparmor` key is needed in
-`config.yaml`. Supervisor `watchdog` is intentionally not declared until the App
-exposes an HTTP or TCP endpoint compatible with Supervisor watchdog checks. The
-Docker `HEALTHCHECK` remains internal container health metadata.
+This experimental App intentionally does not ship a custom `apparmor.txt`.
+Home Assistant Supervisor applies its default AppArmor profile. A custom profile
+can be added later after validating the full S6 startup path used by
+`ghcr.io/home-assistant/base`.
+
+Supervisor `watchdog` is intentionally not declared until the App exposes an
+HTTP or TCP endpoint compatible with Supervisor watchdog checks. The Docker
+`HEALTHCHECK` remains internal container health metadata.

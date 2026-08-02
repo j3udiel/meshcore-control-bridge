@@ -19,7 +19,6 @@ def test_homeassistant_app_repository_layout() -> None:
         "README.md",
         "DOCS.md",
         "CHANGELOG.md",
-        "apparmor.txt",
         "translations/en.yaml",
         "translations/es.yaml",
         "package/pyproject.toml",
@@ -48,7 +47,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
     }
 
     assert set(config) <= allowed_config_keys
-    assert config["version"] == "0.1.1"
+    assert config["version"] == "0.1.2"
     assert config["homeassistant_api"] is True
     assert config["stage"] == "experimental"
     assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
@@ -66,6 +65,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
     assert "uart" not in config
     assert "apparmor" not in config
     assert "watchdog" not in config
+    assert not (ROOT / "meshcore-control-bridge/apparmor.txt").exists()
 
 
 def test_only_app_directory_contains_supervisor_config_yaml() -> None:
@@ -82,3 +82,10 @@ def test_homeassistant_app_run_script_is_executable() -> None:
     mode = (ROOT / "meshcore-control-bridge/run.sh").stat().st_mode
 
     assert mode & stat.S_IXUSR
+
+
+def test_homeassistant_app_preserves_base_entrypoint() -> None:
+    dockerfile = (ROOT / "meshcore-control-bridge/Dockerfile").read_text()
+
+    assert "ENTRYPOINT" not in dockerfile
+    assert 'CMD ["/run.sh"]' in dockerfile
