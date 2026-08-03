@@ -109,6 +109,19 @@ def test_token_import_initial_and_reuse(tmp_path: Path) -> None:
     assert oct(token_file.stat().st_mode & 0o777) == "0o600"
 
 
+def test_empty_token_import_does_not_rotate_existing_file(tmp_path: Path) -> None:
+    token_file = tmp_path / "telegram.bot_token"
+    load_or_import_token(token_import=VALID_TOKEN, token_file=str(token_file))
+    first_stat = token_file.stat()
+
+    reused = load_or_import_token(token_import="", token_file=str(token_file))
+    second_stat = token_file.stat()
+
+    assert reused.value == VALID_TOKEN
+    assert second_stat.st_ino == first_stat.st_ino
+    assert second_stat.st_mtime_ns == first_stat.st_mtime_ns
+
+
 def test_token_rotation(tmp_path: Path) -> None:
     token_file = tmp_path / "telegram.bot_token"
 
@@ -160,6 +173,21 @@ async def test_first_activation_deletes_webhook_and_drops_pending_updates(tmp_pa
     await service.initialize()
 
     assert client.delete_webhook_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_normal_restart_does_not_drop_pending_updates_again(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    first_client = FakeTelegramClient()
+    first_service = TelegramFoundationService(config=_config(), client=first_client, store=store)
+
+    await first_service.initialize()
+    second_client = FakeTelegramClient()
+    second_service = TelegramFoundationService(config=_config(), client=second_client, store=store)
+    await second_service.initialize()
+
+    assert first_client.delete_webhook_calls == [True]
+    assert second_client.delete_webhook_calls == []
 
 
 @pytest.mark.asyncio
