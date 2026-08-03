@@ -13,16 +13,39 @@ The target behavior is:
   from Telegram through the same command engine.
 - Commands are not forwarded to MeshCore by default.
 
+## Telegram V1 Scope
+
+Telegram v1 is intentionally narrow:
+
+- One Telegram bot.
+- One authorized private Telegram chat.
+- One authorized Telegram user.
+- One MeshCore channel.
+- Plain text only.
+- Existing readonly commands only.
+- Long polling only.
+
+Groups, supergroups, channels, multiple bots, multiple MeshCore channels,
+webhooks, media forwarding, and write commands are later phases.
+
+Telegram platform constraints:
+
+- A user must open the bot chat and press Start or send the first message.
+- A bot cannot initiate a conversation with a user that has not started it.
+- Group support requires a separate review of BotFather Privacy Mode, bot admin
+  permissions, mention handling, and group-specific authorization.
+
 ## Configuration Model
 
-Initial configuration:
+Initial v1 configuration:
 
 ```yaml
 telegram:
   enabled: false
+  bot_token_import: ""
   bot_token_file: /data/telegram.bot_token
-  allowed_chat_ids: []
-  allowed_user_ids: []
+  allowed_private_chat_id: ""
+  allowed_user_id: ""
   meshcore_channel_index: 1
   forward_meshcore_to_telegram: true
   forward_telegram_to_meshcore: true
@@ -33,13 +56,26 @@ telegram:
 
 `enabled` must default to `false`. A deployment must opt in explicitly.
 
-`bot_token_file` points to a file outside public options and outside SQLite. The
-token must never be stored in SQLite, command metadata, audit metadata, logs, or
-Home Assistant public option text if a more private file mechanism is available.
+`bot_token_import` is a one-time protected import field used by the Home
+Assistant App UI. When non-empty, startup validates the token shape, writes it
+atomically to `bot_token_file`, sets mode `0600`, and then avoids re-exposing the
+value. If the Home Assistant Supervisor options API cannot clear the import
+field automatically, the App must log a safe warning telling the operator to
+clear the field after successful import. The token must never appear in logs,
+SQLite, normalized audit metadata, exceptions, health output, documentation with
+real values, or diagnostics.
 
-`allowed_chat_ids` authorizes Telegram rooms. `allowed_user_ids` authorizes
-human senders. Both lists contain configured raw IDs in protected
-configuration, but audit records use HMAC references only.
+`bot_token_file` points to the persisted token file. It is created from
+`bot_token_import` or reused after restart. It must be a regular file, not a
+symlink, mode `0600`, and owned by the expected runtime user where portable.
+Rotation is explicit: set a new `bot_token_import`, restart, verify import, and
+clear the import field if it remains visible in the UI.
+
+`allowed_private_chat_id` authorizes exactly one Telegram private chat.
+`allowed_user_id` authorizes exactly one human Telegram user. Both raw IDs exist
+only in protected configuration and memory. Audit records use HMAC references
+only. Empty values keep Telegram disabled or fail closed when
+`telegram.enabled=true`.
 
 `meshcore_channel_index` selects the MeshCore channel used for forwarded
 Telegram text. Channel `0` must remain prohibited for administration.
@@ -64,7 +100,7 @@ Room identity:
 RoomRef(
   transport="telegram",
   room_id="telegram:chat:<chat-id-hmac-or-config-ref>",
-  room_kind="private" | "group" | "supergroup" | "channel"
+  room_kind="private"
 )
 ```
 
@@ -88,30 +124,24 @@ The raw Telegram `chat_id`, `user_id`, and optional `sender_chat_id` may appear
 only in protected authorization configuration and in the in-memory update being
 processed. They must not be written raw to normalized audit events.
 
-### Chat Authorization
+### V1 Authorization
 
-`allowed_chat_ids` is checked first. If the update comes from a chat that is not
-configured, the bridge ignores it silently or logs a safe warning with an HMAC
-chat reference. It must not reply to unknown group chats because replying proves
-the bot is active.
+`allowed_private_chat_id` is checked first. If an update is not from the
+configured private chat, the bridge ignores it and logs only a safe reason with
+an HMAC chat reference.
 
-Private chats:
+Private chat authorization:
 
-- Require the private chat ID to be in `allowed_chat_ids`.
-- Require the user ID to be in `allowed_user_ids`.
+- Require the private chat ID to equal `allowed_private_chat_id`.
+- Require the user ID to equal `allowed_user_id`.
 - The effective role comes from the configured Telegram user mapping.
 
-Groups and supergroups:
+Groups, supergroups, and channels:
 
-- Require the group chat ID to be in `allowed_chat_ids`.
-- Require the human sender's user ID to be in `allowed_user_ids`.
-- Ignore anonymous admin or sender-chat messages in v1 unless explicitly
-  supported with a separate sender-chat allowlist.
-- Ignore messages from bots.
-
-Channels:
-
-- Ignore channel posts in v1 unless a future sender-chat policy is designed.
+- Out of scope for v1.
+- Ignore without reply.
+- A later design must revisit Privacy Mode, admin permissions, anonymous admins,
+  sender-chat updates, mentions, and group-specific roles.
 
 ### Role Mapping
 
@@ -136,6 +166,27 @@ Unauthorized normal Telegram text is not forwarded to MeshCore.
 
 ## Message Classification
 
+Every inbound message uses this shared pipeline:
+
+```text
+message received
+-> channel/room authorization
+-> deduplication
+-> rate limit
+-> classification
+   -> command: command engine, response to origin transport
+   -> normal text: bridge policy
+   -> unsupported/empty: ignore
+```
+
+Classification happens after security filters. Normal MeshCore text must be
+able to reach Telegram before the command router returns `not_a_command`.
+Normal text does not enter the `CommandRouter`.
+
+Responses produced by the bridge are never bridged again. MeshCore commands are
+not shown as normal Telegram chat by default. Telegram command responses return
+only to the Telegram chat. MeshCore command responses return only to MeshCore.
+
 Every Telegram update is classified before any command or bridge action:
 
 | Input | v1 behavior |
@@ -158,6 +209,38 @@ MeshCore messages received from the configured channel are classified similarly:
 - If they are normal text and `forward_meshcore_to_telegram=true`, forward to
   authorized Telegram rooms.
 - Do not forward messages that are known to have originated from Telegram.
+
+## Telegram Long Polling
+
+v1 uses long polling and must not use webhooks.
+
+Startup sequence:
+
+1. Load and validate the token file.
+2. Call `deleteWebhook` with `drop_pending_updates=true` when Telegram bridge is
+   enabled for the first time or after an explicit operator reset. This prevents
+   old updates from being processed at activation.
+3. Fail closed if a webhook remains configured or another consumer appears to be
+   using the same bot.
+4. Call `getUpdates` with `allowed_updates=["message"]`.
+5. Use a bounded long-poll timeout, for example 50 seconds, plus a shorter HTTP
+   client timeout around connection setup.
+6. Track `last_update_id` and request `offset=last_update_id+1`.
+
+Update confirmation policy:
+
+- Persist `last_update_id` only after the update has been classified,
+  deduplicated, audited, and either processed or intentionally ignored.
+- If the process exits before persisting the offset, Telegram may deliver the
+  update again. Normalized deduplication and command idempotency must handle the
+  repeat.
+- If the process exits after persisting the offset but before a best-effort
+  forward completes, Telegram will not redeliver the update. The bridge records
+  the failed or dropped state in audit.
+- Do not process pending history on first activation.
+
+`allowed_updates=["message"]` intentionally excludes edited messages, channel
+posts, callback queries, inline queries, and other update types in v1.
 
 ## Loop Prevention
 
@@ -201,18 +284,51 @@ content_ref_hash
 
 When a MeshCore message later appears, the bridge checks:
 
-- whether the transport marks it as outgoing or self-sent;
-- whether metadata contains a known `bridge_message_id` or reply correlation;
-- whether a recent bridge record has the same destination room and content HMAC;
-- whether the observed sender identity is the bridge's own MeshCore identity.
+1. Whether the transport marks it as outgoing or self-sent.
+2. Whether metadata contains a known `bridge_message_id` or reply correlation.
+3. Whether the observed sender identity is the bridge's own MeshCore identity.
+4. Whether a pending bridge record links this source/destination pair.
+5. Whether a content HMAC fallback matches.
 
 If any loop rule matches, audit `bridge.message.ignored` with
 `reason=loop_prevention` and do not forward back to Telegram.
 
-The deduplication window should be short, for example 10 minutes, and based on
-expiration timestamps, not fixed time buckets. It must not deduplicate across
-different transports, rooms, or senders unless a bridge record explicitly links
-the messages.
+The fallback content HMAC is the last resort and is intentionally narrow. It may
+match only when all of these are true:
+
+- The direction is the reverse of a pending bridge send.
+- The destination room equals the room that originally received the bridge send.
+- The byte size matches the pending record.
+- The record is inside a short temporal window.
+- A pending send record exists.
+- The pending record is consumed once and then removed.
+
+This fallback must not block all identical text globally. Legitimate repeated
+messages such as `ok` twice from Telegram, `ok` twice from MeshCore, the same
+text from two users, or the same text after restart must be allowed unless they
+match a concrete pending bridge echo.
+
+The bridge deduplication window should be short and based on expiration
+timestamps, not fixed time buckets. It must not deduplicate across different
+transports, rooms, or senders unless a bridge record explicitly links the
+messages.
+
+## Delivery States
+
+Forwarding records use explicit delivery states:
+
+- `accepted_by_telegram`: Telegram accepted the API call.
+- `accepted_by_meshcore_transport`: Home Assistant or the MeshCore transport
+  accepted the send request.
+- `observed_echo`: the bridge observed a probable echo of its own forwarded
+  message and consumed the pending record.
+- `failed`: the destination transport returned an error or timed out.
+- `dropped`: the bridge intentionally skipped forwarding due to policy,
+  deduplication, shutdown, or backpressure.
+
+`accepted_by_meshcore_transport` does not prove LoRa delivery to the final
+recipient. It only means the local MeshCore integration or transport accepted
+the send request.
 
 ## Length And Formatting
 
@@ -395,11 +511,15 @@ SQLite:
 
 Token handling:
 
-- Read the bot token from `bot_token_file`.
+- Import the bot token from the protected one-time App option
+  `bot_token_import`.
+- Write the token to `bot_token_file` with an atomic create/replace sequence.
 - File must be regular, owned by the expected runtime user where portable,
   mode `0600`, and not a symlink.
 - Never log token contents or token file contents.
-- Rotation is done by replacing the token file and restarting the bridge in v1.
+- Rotation is done by setting a new `bot_token_import`, restarting, verifying
+  the new token was written, and clearing the import field if the Supervisor UI
+  still shows it.
 
 Startup:
 
@@ -407,6 +527,8 @@ Startup:
   handling to start after the latest update unless the operator explicitly opts
   into replay.
 - Webhooks are out of scope for v1.
+- If `deleteWebhook` fails or a webhook remains active, fail closed to avoid two
+  consumers processing the same bot.
 
 Authorization:
 
@@ -457,7 +579,7 @@ Bridge: Comando desconocido. Usa !help
 Unauthorized chat:
 
 ```text
-No response in groups; safe warning in logs only.
+No response; safe warning in logs only.
 ```
 
 Unauthorized private user:
@@ -484,14 +606,63 @@ Unsupported message type:
 No compatible en esta version.
 ```
 
+## Installation And Enrollment UX
+
+Operator flow:
+
+1. Create a Telegram bot with BotFather.
+2. Open a private chat with the bot and press Start or send a first message.
+3. Obtain `chat_id` and `user_id` using a safe enrollment mode or diagnostic.
+4. Configure `allowed_private_chat_id` and `allowed_user_id`.
+5. Paste the token into `bot_token_import`.
+6. Enable Telegram.
+7. Restart the App.
+8. Verify that `bot_token_file` exists and the import field is cleared or
+   manually clear it in the UI.
+9. Send normal Telegram text and confirm it appears on MeshCore.
+10. Send normal MeshCore text and confirm it appears in Telegram.
+11. Send `!ping` in Telegram and confirm the response is only in Telegram.
+
+Safe enrollment mode:
+
+- Disabled by default.
+- Requires Telegram to be enabled and a token already imported.
+- Listens only to private chat messages.
+- Prints or displays only redacted diagnostics by default.
+- Shows `chat_id` and `user_id` only behind an explicit diagnostic command or UI
+  action that warns not to share the output.
+- Does not print the bot token, raw update payloads, usernames, names, chat
+  titles, or message text.
+- Does not authorize the discovered IDs automatically.
+
+CLI/App diagnostic alternative:
+
+```text
+telegram-diagnose enroll --seconds 60
+```
+
+Expected output shape:
+
+```text
+Telegram enrollment candidate
+chat_id: <numeric-id>
+user_id: <numeric-id>
+chat_type: private
+message_text: redacted
+```
+
+The diagnostic must avoid dumping full Telegram updates. It should fail closed
+if the token file permissions are unsafe.
+
 ## Planned Tests
 
-- Authorized chat.
-- Unauthorized chat.
+- Authorized private chat.
+- Unauthorized private chat.
 - Authorized user.
 - Unauthorized user.
-- Private chat command.
-- Group command.
+- Group ignored in v1.
+- Supergroup ignored in v1.
+- Channel ignored in v1.
 - Bot message ignored.
 - Edited message ignored.
 - Text command executes locally.
@@ -500,6 +671,12 @@ No compatible en esta version.
 - Unsupported media ignored or receives a safe response.
 - Telegram to MeshCore loop prevention.
 - MeshCore to Telegram loop prevention.
+- Legitimate `ok` twice from Telegram is not blocked by loop prevention.
+- Legitimate `ok` twice from MeshCore is not blocked by loop prevention.
+- Real bridge echo is blocked and consumes one pending bridge record.
+- Same text from two different users is not blocked.
+- Same text after restart is not blocked unless a durable pending record
+  explicitly matches.
 - Duplicate Telegram update ignored.
 - Duplicate MeshCore message ignored.
 - Long UTF-8 text truncates without splitting code points.
@@ -513,6 +690,19 @@ No compatible en esta version.
   text.
 - No SQLite transaction remains open across an awaited network call.
 - Graceful shutdown drains or safely drops queued bridge messages.
+- First activation drops pending updates and does not process old history.
+- Offset persists only after an update is processed or intentionally ignored.
+- Crash before offset persistence is made safe by deduplication.
+- Crash after offset persistence records failed or dropped forwarding state.
+- Token import writes a regular `0600` file and does not expose the token.
+- Token rotation replaces the file only through an explicit import.
+
+## Relationship To Configurable Commands
+
+The design may mention `!exterior` as an example of a future or optional
+readonly command. Telegram bridge v1 must not depend on that command existing.
+The bridge executes whatever readonly commands are registered in the command
+registry at runtime, currently including the commands available on `main`.
 
 ## Out Of Scope
 
@@ -520,6 +710,7 @@ No compatible en esta version.
 - Multiple Telegram bots.
 - Multiple MeshCore channels.
 - Telegram webhooks.
+- Telegram groups, supergroups, and channels.
 - Write commands.
 - Edited or deleted message synchronization.
 - Historical synchronization.
