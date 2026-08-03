@@ -24,6 +24,20 @@ weather_status:
   humidity_entity: ""
   label: "Exterior"
 
+telegram:
+  enabled: false
+  # Use a protected file for the real bot token. Do not commit the token.
+  bot_token_import: ""
+  bot_token_file: /data/telegram.bot_token
+  allowed_private_chat_id: ""
+  allowed_user_id: ""
+  meshcore_channel_index: 1
+  forward_meshcore_to_telegram: true
+  forward_telegram_to_meshcore: true
+  command_prefix: "!"
+  max_meshcore_message_length: 180
+  message_prefix: ""
+
 users:
   # Use a stable public key or node ID. Do not trust display names as authentication.
   "meshcore-public-key-or-stable-node-id":

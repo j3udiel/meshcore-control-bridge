@@ -20,6 +20,8 @@ _NOISY_LOGGERS = (
     "httpcore",
 )
 
+_REDACTION_FILTERS: list[SecretRedactionFilter] = []
+
 
 class SecretRedactionFilter(logging.Filter):
     def __init__(self, known_secrets: list[str] | None = None) -> None:
@@ -68,6 +70,8 @@ class SecretRedactionFilter(logging.Filter):
 def configure_logging(level: str = "INFO") -> None:
     known_secrets = [os.getenv("SUPERVISOR_TOKEN", "")]
     redaction_filter = SecretRedactionFilter(known_secrets)
+    _REDACTION_FILTERS.clear()
+    _REDACTION_FILTERS.append(redaction_filter)
     logging.basicConfig(
         level=getattr(logging, level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -79,3 +83,11 @@ def configure_logging(level: str = "INFO") -> None:
         handler.addFilter(redaction_filter)
     for logger_name in _NOISY_LOGGERS:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def register_redaction_secret(secret: str) -> None:
+    if not secret:
+        return
+    for redaction_filter in _REDACTION_FILTERS:
+        if secret not in redaction_filter.known_secrets:
+            redaction_filter.known_secrets.append(secret)

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add disabled-by-default Telegram v1 foundation for one bot, one private chat,
+  one authorized user, and long polling.
+- Add secure Telegram bot token import and persistence to a protected token
+  file.
+- Add Telegram update offset persistence, update deduplication, bounded backoff,
+  and safe ignored-update auditing.
+- Does not add Telegram command execution, Telegram to MeshCore forwarding,
+  MeshCore to Telegram forwarding, bidirectional bridging, groups, media,
+  webhooks, or write commands.
+
 ## 0.1.8
 
 - Add configurable readonly `!exterior` command for Home Assistant outdoor

@@ -11,3 +11,6 @@ configuration:
   weather_status:
     name: Estado exterior
     description: Entidades readonly opcionales de Home Assistant usadas por !exterior.
+  telegram:
+    name: Fundacion Telegram
+    description: Base Telegram Bot API desactivada por defecto para futuros comandos readonly y puente.

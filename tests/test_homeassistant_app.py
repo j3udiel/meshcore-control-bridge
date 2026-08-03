@@ -47,6 +47,19 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
                     "humidity_entity": configured_humidity,
                     "label": "Patio",
                 },
+                "telegram": {
+                    "enabled": False,
+                    "bot_token_import": "",
+                    "bot_token_file": "/data/telegram.bot_token",
+                    "allowed_private_chat_id": "",
+                    "allowed_user_id": "",
+                    "meshcore_channel_index": 1,
+                    "forward_meshcore_to_telegram": True,
+                    "forward_telegram_to_meshcore": True,
+                    "command_prefix": "!",
+                    "max_meshcore_message_length": 180,
+                    "message_prefix": "",
+                },
                 "rate_limit": {"commands": 5, "window_seconds": 60},
                 "log_level": "info",
             }
@@ -73,6 +86,9 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.weather_status.temperature_entity == configured_temperature
     assert config.weather_status.humidity_entity == configured_humidity
     assert config.weather_status.label == "Patio"
+    assert config.telegram.enabled is False
+    assert config.telegram.bot_token_file == "/data/telegram.bot_token"
+    assert config.telegram.meshcore_channel_index == 1
 
 
 def test_homeassistant_app_rejects_public_channel_zero() -> None:
@@ -95,6 +111,17 @@ def test_homeassistant_app_rejects_invalid_role() -> None:
                 "authorized_senders": [
                     {"pubkey_prefix": "abcdef123456", "name": "admin", "role": "root"}
                 ],
+            }
+        )
+
+
+def test_homeassistant_app_telegram_enabled_requires_private_chat_and_user() -> None:
+    with pytest.raises(ValueError, match="allowed_private_chat_id"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "allow_unidentified_readonly_testing": True,
+                "telegram": {"enabled": True},
             }
         )
 

@@ -47,6 +47,18 @@ weather_status:
   temperature_entity: ""
   humidity_entity: ""
   label: "Exterior"
+telegram:
+  enabled: false
+  bot_token_import: ""
+  bot_token_file: /data/telegram.bot_token
+  allowed_private_chat_id: ""
+  allowed_user_id: ""
+  meshcore_channel_index: 1
+  forward_meshcore_to_telegram: true
+  forward_telegram_to_meshcore: true
+  command_prefix: "!"
+  max_meshcore_message_length: 180
+  message_prefix: ""
 rate_limit:
   commands: 5
   window_seconds: 60
@@ -184,3 +196,18 @@ store sensor values or configured entity IDs in normalized audit metadata.
 The Telegram bridge document included in this release is design only. This
 release does not include a Telegram transport, Telegram to MeshCore bridging,
 write commands, or USB release work.
+
+## Telegram Foundation
+
+The Telegram foundation is disabled by default. When enabled, it supports only
+one bot, one authorized private chat, one authorized Telegram user, plain text,
+and long polling. It imports the bot token once from `telegram.bot_token_import`
+and stores it in `telegram.bot_token_file`, normally
+`/data/telegram.bot_token`, with restricted file permissions.
+
+This foundation does not execute Telegram commands and does not forward messages
+between Telegram and MeshCore yet. It only validates configuration, manages the
+token file, clears pending updates on first activation, polls Telegram with
+`allowed_updates=["message"]`, filters unsupported or unauthorized updates,
+persists `last_update_id`, deduplicates repeated updates, and records safe audit
+events without raw message text, raw chat IDs, raw user IDs, or token values.
