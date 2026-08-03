@@ -76,11 +76,27 @@ assert config["options"]["weather_status"] == {
     "humidity_entity": "",
     "label": "Exterior",
 }
+assert config["options"]["telegram"] == {
+    "enabled": False,
+    "bot_token_import": "",
+    "bot_token_file": "/data/telegram.bot_token",
+    "allowed_private_chat_id": "",
+    "allowed_user_id": "",
+    "meshcore_channel_index": 1,
+    "forward_meshcore_to_telegram": True,
+    "forward_telegram_to_meshcore": True,
+    "command_prefix": "!",
+    "max_meshcore_message_length": 180,
+    "message_prefix": "",
+}
 assert config["options"]["allow_unidentified_readonly_testing"] is True
 assert config["options"]["log_level"] == "debug"
 assert config["schema"]["authorized_senders"][0]["role"] == "list(readonly|home|operator|admin)"
 assert config["schema"]["weather_status"]["temperature_entity"] == "str?"
 assert config["schema"]["weather_status"]["humidity_entity"] == "str?"
+assert config["schema"]["telegram"]["bot_token_import"] == "password?"
+assert config["schema"]["telegram"]["meshcore_channel_index"] == "int(1,255)"
+assert config["schema"]["telegram"]["max_meshcore_message_length"] == "int(1,1000)"
 PY
 
 if [[ -f meshcore-control-bridge/apparmor.txt ]]; then

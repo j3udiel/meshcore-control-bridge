@@ -65,6 +65,21 @@ class WeatherStatusConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TelegramConfig:
+    enabled: bool = False
+    bot_token_import: str = ""
+    bot_token_file: str = "/data/telegram.bot_token"
+    allowed_private_chat_id: str = ""
+    allowed_user_id: str = ""
+    meshcore_channel_index: int = 1
+    forward_meshcore_to_telegram: bool = True
+    forward_telegram_to_meshcore: bool = True
+    command_prefix: str = "!"
+    max_meshcore_message_length: int = 180
+    message_prefix: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     command_prefix: str = "!"
     database_path: str = "data/audit.db"
@@ -79,6 +94,7 @@ class AppConfig:
     entities: dict[str, dict[str, str]] = field(default_factory=dict)
     status_entities: dict[str, StatusEntityConfig] = field(default_factory=dict)
     weather_status: WeatherStatusConfig = field(default_factory=WeatherStatusConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
     security: SecurityConfig = field(default_factory=SecurityConfig)
 
@@ -142,6 +158,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         entities=dict(file_data.get("entities", {})),
         status_entities=_parse_status_entities(file_data.get("status", {}).get("entities", {})),
         weather_status=_parse_weather_status(file_data.get("weather_status", {})),
+        telegram=_parse_telegram(file_data.get("telegram", {})),
         servers=dict(file_data.get("servers", {})),
         security=_parse_security(file_data.get("security", {})),
     )
@@ -228,6 +245,64 @@ def validate_weather_status_label(value: object) -> str:
     return label
 
 
+def _parse_telegram(raw_telegram: dict[str, Any]) -> TelegramConfig:
+    if not isinstance(raw_telegram, dict):
+        raise ValueError("telegram must be a mapping")
+    return TelegramConfig(
+        enabled=_env_bool("TELEGRAM_ENABLED", raw_telegram.get("enabled", False)),
+        bot_token_import=str(raw_telegram.get("bot_token_import", "") or ""),
+        bot_token_file=str(
+            os.getenv(
+                "TELEGRAM_BOT_TOKEN_FILE",
+                raw_telegram.get("bot_token_file", "/data/telegram.bot_token"),
+            )
+            or "/data/telegram.bot_token"
+        ),
+        allowed_private_chat_id=str(
+            os.getenv(
+                "TELEGRAM_ALLOWED_PRIVATE_CHAT_ID",
+                raw_telegram.get("allowed_private_chat_id", ""),
+            )
+            or ""
+        ).strip(),
+        allowed_user_id=str(
+            os.getenv("TELEGRAM_ALLOWED_USER_ID", raw_telegram.get("allowed_user_id", ""))
+            or ""
+        ).strip(),
+        meshcore_channel_index=_env_int(
+            "TELEGRAM_MESHCORE_CHANNEL_INDEX",
+            raw_telegram.get("meshcore_channel_index", 1),
+        ),
+        forward_meshcore_to_telegram=_env_bool(
+            "TELEGRAM_FORWARD_MESHCORE_TO_TELEGRAM",
+            raw_telegram.get("forward_meshcore_to_telegram", True),
+        ),
+        forward_telegram_to_meshcore=_env_bool(
+            "TELEGRAM_FORWARD_TELEGRAM_TO_MESHCORE",
+            raw_telegram.get("forward_telegram_to_meshcore", True),
+        ),
+        command_prefix=str(raw_telegram.get("command_prefix", "!") or "!"),
+        max_meshcore_message_length=_env_int(
+            "TELEGRAM_MAX_MESHCORE_MESSAGE_LENGTH",
+            raw_telegram.get("max_meshcore_message_length", 180),
+        ),
+        message_prefix=_validate_telegram_message_prefix(
+            raw_telegram.get("message_prefix", "")
+        ),
+    )
+
+
+def _validate_telegram_message_prefix(value: object) -> str:
+    prefix = str(value or "")
+    if any(character in prefix for character in ("\n", "\r")):
+        raise ValueError("telegram.message_prefix must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in prefix):
+        raise ValueError("telegram.message_prefix must not contain control characters")
+    if len(prefix) > 32:
+        raise ValueError("telegram.message_prefix must be 32 characters or fewer")
+    return prefix
+
+
 def _parse_security(raw_security: dict[str, Any]) -> SecurityConfig:
     rate_limit_data = dict(raw_security.get("rate_limit", {}))
     return SecurityConfig(
@@ -268,6 +343,19 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("rate_limit.commands must be positive")
     if config.security.rate_limit.window_seconds < 1:
         raise ValueError("rate_limit.window_seconds must be positive")
+    if config.telegram.meshcore_channel_index == 0:
+        raise ValueError("telegram.meshcore_channel_index must not be 0")
+    if config.telegram.meshcore_channel_index < 0:
+        raise ValueError("telegram.meshcore_channel_index must be positive")
+    if not config.telegram.command_prefix:
+        raise ValueError("telegram.command_prefix must not be empty")
+    if config.telegram.max_meshcore_message_length < 1:
+        raise ValueError("telegram.max_meshcore_message_length must be positive")
+    if config.telegram.enabled:
+        if not config.telegram.allowed_private_chat_id:
+            raise ValueError("telegram.allowed_private_chat_id is required when enabled")
+        if not config.telegram.allowed_user_id:
+            raise ValueError("telegram.allowed_user_id is required when enabled")
 
 
 def _env_bool(name: str, default: Any) -> bool:

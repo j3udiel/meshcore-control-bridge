@@ -81,6 +81,9 @@ operating real critical controls.
 - Experimental MeshCore USB frame codec and USB transport session.
 - Experimental Home Assistant MeshCore transport using Home Assistant WebSocket
   events and the `meshcore.send_channel_message` service.
+- Disabled-by-default Telegram foundation for one bot, one private chat, one
+  authorized user, token-file handling, long polling, update filtering, offset
+  persistence, and update deduplication.
 - Rate limiting per sender.
 - Short LoRa-oriented responses.
 - MeshCore diagnostic utility for discovering local support.
@@ -97,7 +100,9 @@ operating real critical controls.
   confirmation.
 - Lights, scenes, climate, energy, server, MQTT, Proxmox, or Docker commands.
 - Confirmation flow for critical actions.
-- Telegram, REST API, or local CLI transports.
+- Telegram command execution, Telegram to MeshCore forwarding, MeshCore to
+  Telegram forwarding, REST API, or local CLI transports.
+- Telegram groups, supergroups, channels, media forwarding, and webhooks.
 - Any write action against Home Assistant or infrastructure.
 
 Future capabilities must remain explicit, allow-listed, tested, and role-gated.
@@ -264,9 +269,26 @@ security:
   rate_limit:
     commands: 5
     window_seconds: 60
+
+telegram:
+  enabled: false
+  bot_token_import: ""
+  bot_token_file: /data/telegram.bot_token
+  allowed_private_chat_id: ""
+  allowed_user_id: ""
+  meshcore_channel_index: 1
+  forward_meshcore_to_telegram: true
+  forward_telegram_to_meshcore: true
+  command_prefix: "!"
+  max_meshcore_message_length: 180
+  message_prefix: ""
 ```
 
 Prefer storing `HA_TOKEN` in an environment variable instead of YAML.
+
+Telegram is disabled by default. The current Telegram foundation validates
+configuration, imports the bot token into a protected file, and polls authorized
+private-chat updates, but it does not execute commands or forward messages yet.
 
 ## Local Home Assistant URL for Offline Use
 

@@ -47,6 +47,18 @@ weather_status:
   temperature_entity: ""
   humidity_entity: ""
   label: "Exterior"
+telegram:
+  enabled: false
+  bot_token_import: ""
+  bot_token_file: /data/telegram.bot_token
+  allowed_private_chat_id: ""
+  allowed_user_id: ""
+  meshcore_channel_index: 1
+  forward_meshcore_to_telegram: true
+  forward_telegram_to_meshcore: true
+  command_prefix: "!"
+  max_meshcore_message_length: 180
+  message_prefix: ""
 rate_limit:
   commands: 5
   window_seconds: 60
@@ -184,3 +196,119 @@ store sensor values or configured entity IDs in normalized audit metadata.
 The Telegram bridge document included in this release is design only. This
 release does not include a Telegram transport, Telegram to MeshCore bridging,
 write commands, or USB release work.
+
+## Telegram Foundation
+
+The Telegram foundation is disabled by default. When enabled, it supports only
+one bot, one authorized private chat, one authorized Telegram user, plain text,
+and long polling. It imports the bot token once from `telegram.bot_token_import`
+and stores it in `telegram.bot_token_file`, normally
+`/data/telegram.bot_token`, with restricted file permissions.
+
+This foundation does not execute Telegram commands and does not forward messages
+between Telegram and MeshCore yet. It only validates configuration, manages the
+token file, clears pending updates on first activation, polls Telegram with
+`allowed_updates=["message"]`, filters unsupported or unauthorized updates,
+persists `last_update_id`, deduplicates repeated updates, and records safe audit
+events without raw message text, raw chat IDs, raw user IDs, or token values.
+
+## Telegram Foundation Local Smoke Test
+
+This flow tests PR23 locally without publishing a release and without replacing
+the stable App image.
+
+1. Create a temporary bot with BotFather.
+2. Do not paste the token into shell commands, shell history, logs, issues, or
+   screenshots.
+3. From Home Assistant Terminal & SSH, or another trusted shell with `bash` and
+   `curl`, download the enrollment helper from the PR branch and run it:
+
+   ```sh
+   curl -fsSLo /tmp/telegram-enroll.sh \
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/telegram-enroll.sh
+   bash /tmp/telegram-enroll.sh --timeout 60
+   ```
+
+4. Paste the bot token only at the hidden prompt. The helper does not require
+   Python, `jq`, `yq`, Perl, Ruby, or Node.js.
+5. Open the private chat with the bot, press Start, and send one text message.
+6. Copy only the resulting values:
+
+   ```yaml
+   allowed_private_chat_id: "<id>"
+   allowed_user_id: "<id>"
+   ```
+
+   The enrollment tool must not print usernames, names, message text, payloads,
+   or the bot token.
+
+7. On the Home Assistant host, from Terminal & SSH with access to `/addons`,
+   download the local App preparation helper and run it:
+
+   ```sh
+   curl -fsSLo /tmp/prepare-local-telegram-pr23.sh \
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/prepare-local-telegram-pr23.sh
+   bash /tmp/prepare-local-telegram-pr23.sh
+   ```
+
+   The helper uses only shell tools available in core-ssh. It keeps the Git
+   checkout in `/addons/.meshcore-control-bridge-pr23-source` and generates a
+   self-contained local App at `/addons/meshcore-control-bridge-pr23`.
+
+   The generated App root contains `config.yaml`, `Dockerfile`, `run.sh`,
+   `pyproject.toml`, `README.md`, `src/`, translations, and the App
+   documentation. The helper changes the local App name and slug, comments the
+   `image:` line, and rewrites the local Dockerfile so Supervisor can build from
+   that App directory as the Docker build context.
+
+   By default it verifies the current remote HEAD of the PR branch. If you want
+   to pin a specific commit from the PR, pass it explicitly:
+
+   ```sh
+   bash /tmp/prepare-local-telegram-pr23.sh <pr-head-sha>
+   ```
+
+8. In Home Assistant, reload Local apps.
+9. Install `MeshCore Control Bridge PR23`. It uses the separate slug
+   `meshcore_control_bridge_pr23`.
+10. Configure only the PR23 App:
+
+    ```yaml
+    telegram:
+      enabled: true
+      bot_token_import: "<token>"
+      bot_token_file: /data/telegram.bot_token
+      allowed_private_chat_id: "<id>"
+      allowed_user_id: "<id>"
+      meshcore_channel_index: 1
+      forward_meshcore_to_telegram: true
+      forward_telegram_to_meshcore: true
+      command_prefix: "!"
+      max_meshcore_message_length: 180
+      message_prefix: ""
+    ```
+
+11. Start the PR23 App and inspect logs. Expected safe signals include Telegram
+    first activation, pending update discard, polling startup, and bridge ready.
+12. Clear `telegram.bot_token_import` in the App UI after the token file has
+    been imported.
+13. Restart the PR23 App.
+14. Send another private text message to the bot.
+15. Confirm that polling continues and pending updates are not discarded again
+    on normal restart.
+
+This foundation still does not respond to Telegram messages, execute Telegram
+commands, or forward messages between Telegram and MeshCore.
+
+After testing:
+
+1. Stop and uninstall the PR23 App from Home Assistant.
+2. Run:
+
+   ```sh
+   curl -fsSLo /tmp/remove-local-telegram-pr23.sh \
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/remove-local-telegram-pr23.sh
+   bash /tmp/remove-local-telegram-pr23.sh
+   ```
+
+3. Revoke the temporary bot in BotFather if it will not be reused.

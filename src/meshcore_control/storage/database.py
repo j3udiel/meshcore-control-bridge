@@ -103,6 +103,30 @@ CREATE TABLE IF NOT EXISTS deduplication_keys (
   expires_at REAL NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS telegram_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS telegram_update_deduplication (
+  update_ref_hash TEXT PRIMARY KEY,
+  expires_at REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS telegram_audit_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_type TEXT NOT NULL,
+  update_ref_hash TEXT,
+  chat_ref_hash TEXT,
+  user_ref_hash TEXT,
+  chat_type TEXT,
+  message_type TEXT,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 

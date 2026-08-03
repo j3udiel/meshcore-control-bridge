@@ -93,3 +93,43 @@ homeassistant:
 
     with pytest.raises(ValueError, match="HA_TOKEN"):
         load_config(str(config_file))
+
+
+def test_telegram_config_loads_disabled_by_default(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text("meshcore:\n  channel_index: 1\n", encoding="utf-8")
+
+    config = load_config(str(config_file))
+
+    assert config.telegram.enabled is False
+    assert config.telegram.bot_token_file == "/data/telegram.bot_token"
+    assert config.telegram.meshcore_channel_index == 1
+
+
+def test_telegram_enabled_requires_private_chat_and_user(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  enabled: true
+  bot_token_file: /tmp/telegram.bot_token
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="allowed_private_chat_id"):
+        load_config(str(config_file))
+
+
+def test_telegram_rejects_public_meshcore_channel(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  meshcore_channel_index: 0
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="telegram.meshcore_channel_index"):
+        load_config(str(config_file))

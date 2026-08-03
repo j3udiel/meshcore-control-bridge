@@ -21,6 +21,18 @@ options:
     temperature_entity: ""
     humidity_entity: ""
     label: "Exterior"
+  telegram:
+    enabled: false
+    bot_token_import: ""
+    bot_token_file: /data/telegram.bot_token
+    allowed_private_chat_id: ""
+    allowed_user_id: ""
+    meshcore_channel_index: 1
+    forward_meshcore_to_telegram: true
+    forward_telegram_to_meshcore: true
+    command_prefix: "!"
+    max_meshcore_message_length: 180
+    message_prefix: ""
   rate_limit:
     commands: 5
     window_seconds: 60
@@ -42,6 +54,18 @@ schema:
     temperature_entity: "str?"
     humidity_entity: "str?"
     label: "str"
+  telegram:
+    enabled: bool
+    bot_token_import: "password?"
+    bot_token_file: "str?"
+    allowed_private_chat_id: "str?"
+    allowed_user_id: "str?"
+    meshcore_channel_index: "int(1,255)"
+    forward_meshcore_to_telegram: bool
+    forward_telegram_to_meshcore: bool
+    command_prefix: "str(1,4)"
+    max_meshcore_message_length: "int(1,1000)"
+    message_prefix: "str?"
   rate_limit:
     commands: "int(1,100)"
     window_seconds: "int(1,3600)"

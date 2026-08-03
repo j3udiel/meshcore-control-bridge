@@ -7,6 +7,22 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Disabled-by-default Telegram v1 foundation for one bot, one private chat, one
+  authorized user, and long polling.
+- Secure Telegram bot token import and persistence to a protected token file.
+- Telegram update offset persistence, update deduplication, bounded backoff, and
+  safe ignored-update auditing.
+
+### Not Included
+
+- Telegram command execution.
+- Telegram to MeshCore forwarding.
+- MeshCore to Telegram forwarding.
+- Bidirectional bridging or loop-prevention runtime.
+- Telegram groups, supergroups, channels, media, webhooks, or write commands.
+
 ## [0.1.8] - 2026-08-03
 
 ### Added

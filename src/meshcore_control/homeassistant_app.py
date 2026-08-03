@@ -15,6 +15,7 @@ from meshcore_control.config import (
     RateLimitConfig,
     SecurityConfig,
     StatusEntityConfig,
+    TelegramConfig,
     WeatherStatusConfig,
     validate_weather_status_label,
 )
@@ -72,6 +73,21 @@ class AppWeatherStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class AppTelegramOptions:
+    enabled: bool = False
+    bot_token_import: str = ""
+    bot_token_file: str = "/data/telegram.bot_token"
+    allowed_private_chat_id: str = ""
+    allowed_user_id: str = ""
+    meshcore_channel_index: int = 1
+    forward_meshcore_to_telegram: bool = True
+    forward_telegram_to_meshcore: bool = True
+    command_prefix: str = "!"
+    max_meshcore_message_length: int = 180
+    message_prefix: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class HomeAssistantAppOptions:
     channel_index: int = 1
     meshcore_entry_id: str = ""
@@ -79,6 +95,7 @@ class HomeAssistantAppOptions:
     authorized_senders: tuple[AppAuthorizedSender, ...] = ()
     status_entities: tuple[AppStatusEntity, ...] = ()
     weather_status: AppWeatherStatus = field(default_factory=AppWeatherStatus)
+    telegram: AppTelegramOptions = field(default_factory=AppTelegramOptions)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     log_level: str = "info"
     allow_unidentified_readonly_testing: bool = False
@@ -110,6 +127,7 @@ class HomeAssistantAppOptions:
             authorized_senders=_parse_authorized_senders(payload.get("authorized_senders", [])),
             status_entities=_parse_status_entities(payload.get("status_entities", [])),
             weather_status=_parse_weather_status(payload.get("weather_status", {})),
+            telegram=_parse_telegram(payload.get("telegram", {})),
             rate_limit=RateLimitConfig(
                 commands=_int(rate_limit_data.get("commands", 5), "rate_limit.commands"),
                 window_seconds=_int(
@@ -183,6 +201,19 @@ class HomeAssistantAppOptions:
                 humidity_entity=self.weather_status.humidity_entity,
                 label=self.weather_status.label,
             ),
+            telegram=TelegramConfig(
+                enabled=self.telegram.enabled,
+                bot_token_import=self.telegram.bot_token_import,
+                bot_token_file=self.telegram.bot_token_file,
+                allowed_private_chat_id=self.telegram.allowed_private_chat_id,
+                allowed_user_id=self.telegram.allowed_user_id,
+                meshcore_channel_index=self.telegram.meshcore_channel_index,
+                forward_meshcore_to_telegram=self.telegram.forward_meshcore_to_telegram,
+                forward_telegram_to_meshcore=self.telegram.forward_telegram_to_meshcore,
+                command_prefix=self.telegram.command_prefix,
+                max_meshcore_message_length=self.telegram.max_meshcore_message_length,
+                message_prefix=self.telegram.message_prefix,
+            ),
             security=SecurityConfig(rate_limit=self.rate_limit),
         )
 
@@ -242,6 +273,62 @@ def _parse_weather_status(value: object) -> AppWeatherStatus:
         humidity_entity=str(data.get("humidity_entity", "") or "").strip(),
         label=validate_weather_status_label(data.get("label", "Exterior")),
     )
+
+
+def _parse_telegram(value: object) -> AppTelegramOptions:
+    if value in (None, ""):
+        return AppTelegramOptions()
+    data = _mapping(value, "telegram")
+    meshcore_channel_index = _int(
+        data.get("meshcore_channel_index", 1),
+        "telegram.meshcore_channel_index",
+    )
+    if meshcore_channel_index == 0:
+        raise ValueError("telegram.meshcore_channel_index 0/Public must not be used")
+    if meshcore_channel_index < 0:
+        raise ValueError("telegram.meshcore_channel_index must be positive")
+    max_meshcore_message_length = _int(
+        data.get("max_meshcore_message_length", 180),
+        "telegram.max_meshcore_message_length",
+    )
+    if max_meshcore_message_length < 1:
+        raise ValueError("telegram.max_meshcore_message_length must be positive")
+    command_prefix = str(data.get("command_prefix", "!") or "!")
+    if not command_prefix:
+        raise ValueError("telegram.command_prefix must not be empty")
+    message_prefix = _validate_telegram_message_prefix(data.get("message_prefix", ""))
+    options = AppTelegramOptions(
+        enabled=bool(data.get("enabled", False)),
+        bot_token_import=str(data.get("bot_token_import", "") or ""),
+        bot_token_file=str(data.get("bot_token_file", "/data/telegram.bot_token") or ""),
+        allowed_private_chat_id=str(data.get("allowed_private_chat_id", "") or "").strip(),
+        allowed_user_id=str(data.get("allowed_user_id", "") or "").strip(),
+        meshcore_channel_index=meshcore_channel_index,
+        forward_meshcore_to_telegram=bool(data.get("forward_meshcore_to_telegram", True)),
+        forward_telegram_to_meshcore=bool(data.get("forward_telegram_to_meshcore", True)),
+        command_prefix=command_prefix,
+        max_meshcore_message_length=max_meshcore_message_length,
+        message_prefix=message_prefix,
+    )
+    if options.enabled:
+        if not options.allowed_private_chat_id:
+            raise ValueError("telegram.allowed_private_chat_id is required when enabled")
+        if not options.allowed_user_id:
+            raise ValueError("telegram.allowed_user_id is required when enabled")
+        if not options.bot_token_file:
+            raise ValueError("telegram.bot_token_file is required when enabled")
+    return options
+
+
+def _validate_telegram_message_prefix(value: object) -> str:
+    prefix = str(value or "")
+    if any(character in prefix for character in ("\n", "\r")):
+        raise ValueError("telegram.message_prefix must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in prefix):
+        raise ValueError("telegram.message_prefix must not contain control characters")
+    if len(prefix) > 32:
+        raise ValueError("telegram.message_prefix must be 32 characters or fewer")
+    return prefix
 
 
 def _mapping(value: object, name: str) -> dict[str, Any]:
