@@ -62,6 +62,22 @@ class TelegramBotApiClient:
                 updates.append(item)
         return updates
 
+    async def send_message(
+        self,
+        *,
+        chat_id: str,
+        text: str,
+    ) -> None:
+        await self._post(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "disable_web_page_preview": True,
+            },
+            timeout=15.0,
+        )
+
     async def _post(
         self,
         method: str,

@@ -6,7 +6,8 @@ import logging
 
 from meshcore_control.adapters.homeassistant import HomeAssistantClient
 from meshcore_control.app import BridgeService
-from meshcore_control.auth.authorization import Authorizer
+from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
+from meshcore_control.auth.roles import Role
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import AppConfig, load_config
 from meshcore_control.homeassistant_app import load_homeassistant_app_config
@@ -22,6 +23,7 @@ from meshcore_control.storage.normalized_audit import (
 )
 from meshcore_control.storage.repositories import AuditRepository
 from meshcore_control.telegram.client import TelegramBotApiClient
+from meshcore_control.telegram.identity import TELEGRAM_ROOM_ID, TELEGRAM_SENDER_ID
 from meshcore_control.telegram.service import TelegramFoundationService
 from meshcore_control.telegram.store import TelegramStore
 from meshcore_control.telegram.token import load_or_import_token
@@ -60,7 +62,10 @@ def build_service(
     )
     router = CommandRouter(
         registry=registry,
-        authorizer=Authorizer(config.users, room_policies=config.room_policies),
+        authorizer=Authorizer(
+            _authorized_users(config),
+            room_policies=_room_policies(config),
+        ),
         audit=legacy_audit,
         audit_flow=audit_flow,
         services=services,
@@ -107,6 +112,29 @@ def _build_transport(config: AppConfig) -> Transport:
     return MeshCoreTransport(channel_index=config.meshcore.channel_index)
 
 
+def _authorized_users(config: AppConfig) -> dict[str, AuthorizedUser]:
+    users = dict(config.users)
+    if config.telegram.enabled:
+        users[TELEGRAM_SENDER_ID] = AuthorizedUser(
+            sender_id=TELEGRAM_SENDER_ID,
+            name="telegram-authorized-user",
+            role=Role.readonly,
+        )
+    return users
+
+
+def _room_policies(config: AppConfig) -> dict[str, RoomPolicy]:
+    policies = dict(config.room_policies)
+    if config.telegram.enabled:
+        policies[TELEGRAM_ROOM_ID] = RoomPolicy(
+            room_id=TELEGRAM_ROOM_ID,
+            enabled=True,
+            minimum_role=Role.readonly,
+            allow_commands=True,
+        )
+    return policies
+
+
 async def amain() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
@@ -129,7 +157,12 @@ async def amain() -> None:
         else NormalizedAuditSettings.from_environment()
     )
     service = build_service(config, normalized_audit_settings=normalized_audit_settings)
-    telegram_service = _build_telegram_foundation_service(config, normalized_audit_settings)
+    telegram_service = _build_telegram_foundation_service(
+        config,
+        normalized_audit_settings,
+        router=service.router,
+        audit_flow=service.audit_flow,
+    )
     if args.home_assistant_app:
         logger.info("Bridge ready")
     await _run_services(service, telegram_service)
@@ -138,6 +171,9 @@ async def amain() -> None:
 def _build_telegram_foundation_service(
     config: AppConfig,
     normalized_audit_settings: NormalizedAuditSettings,
+    *,
+    router: CommandRouter,
+    audit_flow: AuditFlow | None,
 ) -> TelegramFoundationService | None:
     if not config.telegram.enabled:
         return None
@@ -153,6 +189,8 @@ def _build_telegram_foundation_service(
         config=config.telegram,
         client=TelegramBotApiClient(token=token),
         store=TelegramStore(connection, audit_key=normalized_audit_settings.audit_key),
+        router=router,
+        audit_flow=audit_flow,
     )
 
 

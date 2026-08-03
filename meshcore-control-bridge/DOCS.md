@@ -225,7 +225,7 @@ the stable App image.
 
    ```sh
    curl -fsSLo /tmp/telegram-enroll.sh \
-     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/telegram-enroll.sh
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-readonly-commands/scripts/telegram-enroll.sh
    bash /tmp/telegram-enroll.sh --timeout 60
    ```
 
@@ -247,7 +247,7 @@ the stable App image.
 
    ```sh
    curl -fsSLo /tmp/prepare-local-telegram-pr23.sh \
-     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/prepare-local-telegram-pr23.sh
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-readonly-commands/scripts/prepare-local-telegram-pr23.sh
    bash /tmp/prepare-local-telegram-pr23.sh
    ```
 
@@ -297,8 +297,18 @@ the stable App image.
 15. Confirm that polling continues and pending updates are not discarded again
     on normal restart.
 
-This foundation still does not respond to Telegram messages, execute Telegram
-commands, or forward messages between Telegram and MeshCore.
+For PRs that include Telegram readonly commands, send these messages in the
+authorized private Telegram chat:
+
+```text
+!ping
+!estado
+!exterior
+```
+
+Expected responses are the same short command responses used by MeshCore, sent
+only to the Telegram chat. Normal Telegram text still stays local to the
+Telegram foundation and is not forwarded to MeshCore.
 
 After testing:
 

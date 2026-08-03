@@ -14,10 +14,12 @@ versioning once releases begin.
 - Secure Telegram bot token import and persistence to a protected token file.
 - Telegram update offset persistence, update deduplication, bounded backoff, and
   safe ignored-update auditing.
+- Readonly Telegram command execution for `!ping`, `!help`, `!estado`,
+  `!estado ha`, and `!exterior` through the existing command router.
+- Plain-text Telegram `sendMessage` responses to the authorized private chat.
 
 ### Not Included
 
-- Telegram command execution.
 - Telegram to MeshCore forwarding.
 - MeshCore to Telegram forwarding.
 - Bidirectional bridging or loop-prevention runtime.

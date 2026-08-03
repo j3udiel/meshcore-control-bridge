@@ -23,6 +23,7 @@ TELEGRAM_REASONS = frozenset(
         "multimedia_ignored",
         "supergroup_ignored",
         "channel_ignored",
+        "command",
         "user_not_authorized",
     }
 )
