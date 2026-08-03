@@ -57,6 +57,16 @@ def test_homeassistant_app_config_is_restricted() -> None:
     assert config["schema"]["authorized_senders"][0]["role"] == (
         "list(readonly|home|operator|admin)"
     )
+    assert config["options"]["weather_status"] == {
+        "temperature_entity": "",
+        "humidity_entity": "",
+        "label": "Exterior",
+    }
+    assert config["schema"]["weather_status"] == {
+        "temperature_entity": "str?",
+        "humidity_entity": "str?",
+        "label": "str",
+    }
     assert config["options"]["allow_unidentified_readonly_testing"] is True
     assert config["options"]["log_level"] == "debug"
     assert "privileged" not in config

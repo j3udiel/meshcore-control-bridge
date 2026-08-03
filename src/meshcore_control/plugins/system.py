@@ -57,6 +57,18 @@ def register(registry: CommandRegistry) -> None:
             handler=estado,
         )
     )
+    registry.register(
+        CommandDefinition(
+            name="exterior",
+            aliases=("outdoor",),
+            group="system",
+            usage="!exterior",
+            help_text="Muestra temperatura y humedad exterior configuradas.",
+            minimum_role=Role.readonly,
+            confirmation_required=False,
+            handler=exterior,
+        )
+    )
 
 
 async def ping(context: CommandContext, args: list[str]) -> str:
@@ -101,6 +113,26 @@ async def estado(context: CommandContext, args: list[str]) -> str:
     return "\n".join(lines)
 
 
+async def exterior(context: CommandContext, args: list[str]) -> str:
+    config = context.services.get("config")
+    weather = config.weather_status if isinstance(config, AppConfig) else None
+    label = weather.label if weather is not None else "Exterior"
+    if weather is None or not weather.temperature_entity:
+        return f"{label}: no configurado"
+
+    ha_client = context.services.get("homeassistant")
+    if ha_client is None:
+        return f"{label}: N/D"
+
+    client = cast(HomeAssistantStatusClient, ha_client)
+    temperature = await _safe_state_value(client, weather.temperature_entity)
+    line = f"{label}: {temperature}"
+    if weather.humidity_entity:
+        humidity = await _safe_state_value(client, weather.humidity_entity)
+        line = f"{line} · Humedad: {humidity}"
+    return line
+
+
 async def _render_ha_status(ha_client: object | None, status: HomeAssistantStatus) -> str:
     if ha_client is None:
         return "HA: sin configurar"
@@ -133,9 +165,18 @@ async def _status_entity_lines(
 
 def _format_state(state: dict[str, Any]) -> str:
     value = str(state.get("state", "N/D"))
+    if value in {"unknown", "unavailable", ""}:
+        return "N/D"
     attributes = state.get("attributes", {})
     unit = ""
     if isinstance(attributes, dict):
         unit_value = attributes.get("unit_of_measurement")
         unit = f" {unit_value}" if unit_value else ""
     return f"{value}{unit}"
+
+
+async def _safe_state_value(client: HomeAssistantStatusClient, entity_id: str) -> str:
+    try:
+        return _format_state(await client.get_state(entity_id))
+    except Exception:
+        return "N/D"

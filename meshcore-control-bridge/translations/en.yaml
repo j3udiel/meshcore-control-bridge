@@ -8,4 +8,6 @@ configuration:
   authorized_senders:
     name: Authorized senders
     description: Stable MeshCore public-key prefixes allowed to execute commands.
-
+  weather_status:
+    name: Outdoor status
+    description: Optional read-only Home Assistant entities used by !exterior.

@@ -43,6 +43,10 @@ meshcore_entry_id: ""
 command_prefix: "!"
 authorized_senders: []
 status_entities: []
+weather_status:
+  temperature_entity: ""
+  humidity_entity: ""
+  label: "Exterior"
 rate_limit:
   commands: 5
   window_seconds: 60
@@ -56,6 +60,11 @@ log_level: debug
 allows readonly commands from channel messages that do not expose a stable
 `pubkey_prefix`. Disable it after you obtain and configure the sender's
 `pubkey_prefix`.
+
+`weather_status.temperature_entity` enables `!exterior`. Leave it empty until
+you choose the read-only Home Assistant temperature entity to expose. The
+humidity entity is optional. The command preserves the units reported by Home
+Assistant and returns `N/D` when an entity is unavailable or cannot be read.
 
 You do not configure `HA_TOKEN` for this App. Home Assistant provides
 `SUPERVISOR_TOKEN` automatically, and the App uses that token only for the

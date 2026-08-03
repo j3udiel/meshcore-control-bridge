@@ -71,9 +71,16 @@ assert "watchdog" not in config
 assert config["schema"]["channel_index"] == "int(1,255)"
 assert config["options"]["channel_index"] == 1
 assert config["options"]["authorized_senders"] == []
+assert config["options"]["weather_status"] == {
+    "temperature_entity": "",
+    "humidity_entity": "",
+    "label": "Exterior",
+}
 assert config["options"]["allow_unidentified_readonly_testing"] is True
 assert config["options"]["log_level"] == "debug"
 assert config["schema"]["authorized_senders"][0]["role"] == "list(readonly|home|operator|admin)"
+assert config["schema"]["weather_status"]["temperature_entity"] == "str?"
+assert config["schema"]["weather_status"]["humidity_entity"] == "str?"
 PY
 
 if [[ -f meshcore-control-bridge/apparmor.txt ]]; then

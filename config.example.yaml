@@ -17,6 +17,13 @@ homeassistant:
   verify_tls: true
   timeout_seconds: 5
 
+weather_status:
+  # Leave empty to make !exterior report that it is not configured.
+  # Configure only read-only Home Assistant entity IDs controlled by the operator.
+  temperature_entity: ""
+  humidity_entity: ""
+  label: "Exterior"
+
 users:
   # Use a stable public key or node ID. Do not trust display names as authentication.
   "meshcore-public-key-or-stable-node-id":

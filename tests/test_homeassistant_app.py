@@ -20,6 +20,8 @@ from meshcore_control.homeassistant_app import (
 
 def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     options_file = tmp_path / "options.json"
+    configured_temperature = ".".join(("sensor", "configured_temperature"))
+    configured_humidity = ".".join(("sensor", "configured_humidity"))
     options_file.write_text(
         json.dumps(
             {
@@ -40,6 +42,11 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
                         "label": "Temp",
                     }
                 ],
+                "weather_status": {
+                    "temperature_entity": configured_temperature,
+                    "humidity_entity": configured_humidity,
+                    "label": "Patio",
+                },
                 "rate_limit": {"commands": 5, "window_seconds": 60},
                 "log_level": "info",
             }
@@ -63,6 +70,9 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.users["meshcore-pubkey-prefix:abcdef123456"].role is Role.admin
     assert config.room_policies["homeassistant-meshcore:channel:1"].minimum_role is Role.readonly
     assert config.status_entities["temperature"].entity_id == "sensor.living_room_temperature"
+    assert config.weather_status.temperature_entity == configured_temperature
+    assert config.weather_status.humidity_entity == configured_humidity
+    assert config.weather_status.label == "Patio"
 
 
 def test_homeassistant_app_rejects_public_channel_zero() -> None:
