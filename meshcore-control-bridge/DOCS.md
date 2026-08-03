@@ -95,6 +95,33 @@ image when ready.
 For App development only, you can still use Home Assistant local App testing
 methods. Do not use that as the normal installation path for users.
 
+To test a pull request branch before publishing a new GHCR image, clone the
+branch into a temporary local App directory on the Home Assistant host:
+
+```sh
+cd /addons
+git clone --branch feat/configurable-outdoor-status \
+  https://github.com/j3udiel/meshcore-control-bridge.git \
+  meshcore-control-bridge-pr20
+```
+
+Then edit the temporary copy at:
+
+```text
+/addons/meshcore-control-bridge-pr20/meshcore-control-bridge/config.yaml
+```
+
+Comment the `image:` line before installing from Local Apps:
+
+```yaml
+# image: "ghcr.io/j3udiel/meshcore-control-bridge"
+```
+
+This forces Supervisor to build the local Dockerfile from the checked-out pull
+request branch instead of downloading the published stable GHCR image for the
+same App version. Do not commit this local edit, and do not use this path for
+normal user installation.
+
 ## Required Values
 
 Use generic, redacted values in issues and logs.
