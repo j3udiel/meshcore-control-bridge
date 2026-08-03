@@ -57,9 +57,6 @@ CREATE TABLE IF NOT EXISTS normalized_audit_events (
   created_at TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_normalized_audit_event_id
-  ON normalized_audit_events (event_id);
-
 CREATE INDEX IF NOT EXISTS idx_normalized_audit_correlation_time
   ON normalized_audit_events (correlation_id, occurred_at);
 
@@ -217,6 +214,56 @@ Key rotation is out of scope for the first implementation. Until rotation is
 implemented, changing the key intentionally breaks continuity of private
 reference hashes across old and new audit rows.
 
+## Activation Policy
+
+Normalized audit requires a valid `audit_key`, but existing standalone
+installations must not fail just because they have not opted into normalized
+audit yet.
+
+Home Assistant App:
+
+- Normalized audit is activated by the Home Assistant App runtime.
+- The App loads `/data/audit.key` if it already exists.
+- If `/data/audit.key` does not exist, the App creates it using the safe key
+  creation rules above.
+- If `/data/audit.key` exists but is invalid, unreadable, too short, or a
+  symlink, startup fails closed.
+- The App must never regenerate over an invalid existing key file.
+- The same key file must be reused across App restarts.
+
+Standalone with an explicit key:
+
+- If `AUDIT_KEY` or an explicit key-file configuration is present, normalized
+  audit is activated.
+- The key is validated before any normalized audit writes happen.
+- Missing, invalid, too-short, unreadable, or malformed explicit keys are fatal.
+
+Standalone legacy without a key and without explicit activation:
+
+- The process continues to start.
+- Existing legacy audit writes remain active.
+- No normalized audit rows are written.
+- The process emits one safe warning that normalized audit is disabled because
+  no audit key is configured.
+- The process must not generate an ephemeral key.
+- The process must not fall back to plain SHA-256 references.
+
+Explicit normalized-audit activation:
+
+- A future flag or configuration value may explicitly require normalized audit
+  for standalone deployments.
+- When explicitly enabled, absence or invalidity of the audit key is fatal.
+- This design PR does not add a new public configuration option; it only defines
+  the future behavior.
+
+Activation decision:
+
+- Home Assistant App: enabled by runtime.
+- Standalone: enabled by presence of a valid key or by a future explicit
+  enablement flag/configuration.
+- Standalone legacy: disabled when no key and no explicit enablement are
+  present.
+
 ## Private Reference Formats
 
 Each key has a non-secret `key_id`, stored in `audit_metadata`. `key_id` is not
@@ -360,5 +407,10 @@ The first implementation PR after this design should satisfy:
 - Tests prove `message.received` can be correlated with
   `message.ignored reason=wrong_channel`.
 - Tests prove metadata rejects unknown keys and unsupported object types.
+- Tests prove a legacy standalone installation without `AUDIT_KEY` still starts.
+- Tests prove no normalized rows are created when normalized audit is inactive.
+- Tests prove explicit normalized-audit activation without a key fails closed.
+- Tests prove the Home Assistant App reuses the same `/data/audit.key` across
+  restarts.
 - Home Assistant App startup remains unchanged.
 - No public configuration change is required for existing users.
