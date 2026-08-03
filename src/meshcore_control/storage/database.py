@@ -52,6 +52,52 @@ CREATE TABLE IF NOT EXISTS audit_events (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS audit_metadata (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS normalized_audit_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
+  event_type TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  causation_event_id TEXT,
+  transport TEXT NOT NULL,
+  source_room_id TEXT NOT NULL,
+  source_room_kind TEXT NOT NULL,
+  reply_target_transport TEXT,
+  reply_target_room_id TEXT,
+  reply_target_room_kind TEXT,
+  sender_ref_hash TEXT,
+  sender_identity_kind TEXT,
+  sender_stable INTEGER NOT NULL CHECK (sender_stable IN (0, 1)),
+  message_ref_hash TEXT,
+  command_name TEXT,
+  command_result TEXT,
+  duration_ms INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+  metadata_json TEXT NOT NULL CHECK (length(metadata_json) <= 4096),
+  occurred_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_normalized_audit_correlation_time
+  ON normalized_audit_events (correlation_id, occurred_at);
+
+CREATE INDEX IF NOT EXISTS idx_normalized_audit_causation
+  ON normalized_audit_events (causation_event_id);
+
+CREATE INDEX IF NOT EXISTS idx_normalized_audit_type_time
+  ON normalized_audit_events (event_type, occurred_at);
+
+CREATE INDEX IF NOT EXISTS idx_normalized_audit_room_time
+  ON normalized_audit_events (transport, source_room_id, occurred_at);
+
+CREATE INDEX IF NOT EXISTS idx_normalized_audit_sender_time
+  ON normalized_audit_events (sender_ref_hash, occurred_at);
+
 CREATE TABLE IF NOT EXISTS deduplication_keys (
   dedup_key TEXT PRIMARY KEY,
   expires_at REAL NOT NULL,
