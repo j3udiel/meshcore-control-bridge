@@ -220,16 +220,17 @@ the stable App image.
 1. Create a temporary bot with BotFather.
 2. Do not paste the token into shell commands, shell history, logs, issues, or
    screenshots.
-3. On a trusted machine with Python dependencies installed, download the
-   enrollment helper from the PR branch and run it:
+3. From Home Assistant Terminal & SSH, or another trusted shell with `bash` and
+   `curl`, download the enrollment helper from the PR branch and run it:
 
    ```sh
-   curl -fsSLo /tmp/telegram-enroll.py \
-     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/telegram-enroll.py
-   python3 /tmp/telegram-enroll.py --timeout 60
+   curl -fsSLo /tmp/telegram-enroll.sh \
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/telegram-enroll.sh
+   bash /tmp/telegram-enroll.sh --timeout 60
    ```
 
-4. Paste the bot token only at the hidden prompt.
+4. Paste the bot token only at the hidden prompt. The helper does not require
+   Python, `jq`, `yq`, Perl, Ruby, or Node.js.
 5. Open the private chat with the bot, press Start, and send one text message.
 6. Copy only the resulting values:
 
@@ -241,7 +242,7 @@ the stable App image.
    The enrollment tool must not print usernames, names, message text, payloads,
    or the bot token.
 
-7. On the Home Assistant host, from a terminal with access to `/addons`,
+7. On the Home Assistant host, from Terminal & SSH with access to `/addons`,
    download the local App preparation helper and run it:
 
    ```sh
@@ -250,8 +251,13 @@ the stable App image.
    bash /tmp/prepare-local-telegram-pr23.sh
    ```
 
-   By default the helper verifies the current remote HEAD of the PR branch. If
-   you want to pin a specific commit from the PR, pass it explicitly:
+   The helper uses only shell tools available in core-ssh. It clones or updates
+   `/addons/meshcore-control-bridge-pr23`, changes the local App name and slug,
+   and comments the `image:` line so Supervisor builds from the local Dockerfile
+   instead of pulling GHCR.
+
+   By default it verifies the current remote HEAD of the PR branch. If you want
+   to pin a specific commit from the PR, pass it explicitly:
 
    ```sh
    bash /tmp/prepare-local-telegram-pr23.sh <pr-head-sha>
