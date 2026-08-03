@@ -17,6 +17,10 @@ options:
   command_prefix: "!"
   authorized_senders: []
   status_entities: []
+  weather_status:
+    temperature_entity: ""
+    humidity_entity: ""
+    label: "Exterior"
   rate_limit:
     commands: 5
     window_seconds: 60
@@ -34,6 +38,10 @@ schema:
     - alias: "match(^[A-Za-z0-9_-]+$)"
       entity_id: "str"
       label: "str"
+  weather_status:
+    temperature_entity: "str?"
+    humidity_entity: "str?"
+    label: "str"
   rate_limit:
     commands: "int(1,100)"
     window_seconds: "int(1,3600)"

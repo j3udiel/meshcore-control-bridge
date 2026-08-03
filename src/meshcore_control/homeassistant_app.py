@@ -15,6 +15,8 @@ from meshcore_control.config import (
     RateLimitConfig,
     SecurityConfig,
     StatusEntityConfig,
+    WeatherStatusConfig,
+    validate_weather_status_label,
 )
 
 SUPERVISOR_REST_BASE_URL = "http://supervisor/core"
@@ -63,12 +65,20 @@ class AppStatusEntity:
 
 
 @dataclass(frozen=True, slots=True)
+class AppWeatherStatus:
+    temperature_entity: str = ""
+    humidity_entity: str = ""
+    label: str = "Exterior"
+
+
+@dataclass(frozen=True, slots=True)
 class HomeAssistantAppOptions:
     channel_index: int = 1
     meshcore_entry_id: str = ""
     command_prefix: str = "!"
     authorized_senders: tuple[AppAuthorizedSender, ...] = ()
     status_entities: tuple[AppStatusEntity, ...] = ()
+    weather_status: AppWeatherStatus = field(default_factory=AppWeatherStatus)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     log_level: str = "info"
     allow_unidentified_readonly_testing: bool = False
@@ -99,6 +109,7 @@ class HomeAssistantAppOptions:
             command_prefix=str(payload.get("command_prefix", "!") or "!"),
             authorized_senders=_parse_authorized_senders(payload.get("authorized_senders", [])),
             status_entities=_parse_status_entities(payload.get("status_entities", [])),
+            weather_status=_parse_weather_status(payload.get("weather_status", {})),
             rate_limit=RateLimitConfig(
                 commands=_int(rate_limit_data.get("commands", 5), "rate_limit.commands"),
                 window_seconds=_int(
@@ -167,6 +178,11 @@ class HomeAssistantAppOptions:
                 entity.alias: StatusEntityConfig(entity_id=entity.entity_id, label=entity.label)
                 for entity in self.status_entities
             },
+            weather_status=WeatherStatusConfig(
+                temperature_entity=self.weather_status.temperature_entity,
+                humidity_entity=self.weather_status.humidity_entity,
+                label=self.weather_status.label,
+            ),
             security=SecurityConfig(rate_limit=self.rate_limit),
         )
 
@@ -215,6 +231,17 @@ def _parse_status_entities(value: object) -> tuple[AppStatusEntity, ...]:
             raise ValueError("status entity entity_id is required")
         entities.append(AppStatusEntity(alias=alias, entity_id=entity_id, label=label or alias))
     return tuple(entities)
+
+
+def _parse_weather_status(value: object) -> AppWeatherStatus:
+    if value in (None, ""):
+        return AppWeatherStatus()
+    data = _mapping(value, "weather_status")
+    return AppWeatherStatus(
+        temperature_entity=str(data.get("temperature_entity", "") or "").strip(),
+        humidity_entity=str(data.get("humidity_entity", "") or "").strip(),
+        label=validate_weather_status_label(data.get("label", "Exterior")),
+    )
 
 
 def _mapping(value: object, name: str) -> dict[str, Any]:

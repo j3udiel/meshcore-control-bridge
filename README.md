@@ -135,6 +135,7 @@ Only these commands are currently implemented:
 !help <group>
 !estado
 !estado ha
+!exterior
 ```
 
 `!ping` returns:
@@ -147,6 +148,11 @@ pong
 
 `!estado` returns a short status summary, including Home Assistant availability
 and any read-only status entities configured in YAML.
+
+`!exterior` returns configured outdoor temperature and optional humidity from
+Home Assistant. It does not hardcode sensor IDs; set `weather_status` in the
+App options or YAML configuration. If `temperature_entity` is empty, it replies
+that the command is not configured.
 
 ## Requirements
 

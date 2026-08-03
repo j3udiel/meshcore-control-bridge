@@ -7,6 +7,11 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Configurable readonly `!exterior` command for Home Assistant outdoor
+  temperature and optional humidity entities.
+
 ## [0.1.7] - 2026-08-03
 
 ### Added

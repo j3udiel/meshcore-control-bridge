@@ -8,3 +8,6 @@ configuration:
   authorized_senders:
     name: Remitentes autorizados
     description: Prefijos de clave publica MeshCore autorizados para ejecutar comandos.
+  weather_status:
+    name: Estado exterior
+    description: Entidades readonly opcionales de Home Assistant usadas por !exterior.

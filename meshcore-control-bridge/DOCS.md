@@ -43,6 +43,10 @@ meshcore_entry_id: ""
 command_prefix: "!"
 authorized_senders: []
 status_entities: []
+weather_status:
+  temperature_entity: ""
+  humidity_entity: ""
+  label: "Exterior"
 rate_limit:
   commands: 5
   window_seconds: 60
@@ -56,6 +60,11 @@ log_level: debug
 allows readonly commands from channel messages that do not expose a stable
 `pubkey_prefix`. Disable it after you obtain and configure the sender's
 `pubkey_prefix`.
+
+`weather_status.temperature_entity` enables `!exterior`. Leave it empty until
+you choose the read-only Home Assistant temperature entity to expose. The
+humidity entity is optional. The command preserves the units reported by Home
+Assistant and returns `N/D` when an entity is unavailable or cannot be read.
 
 You do not configure `HA_TOKEN` for this App. Home Assistant provides
 `SUPERVISOR_TOKEN` automatically, and the App uses that token only for the
@@ -85,6 +94,33 @@ image when ready.
 
 For App development only, you can still use Home Assistant local App testing
 methods. Do not use that as the normal installation path for users.
+
+To test a pull request branch before publishing a new GHCR image, clone the
+branch into a temporary local App directory on the Home Assistant host:
+
+```sh
+cd /addons
+git clone --branch feat/configurable-outdoor-status \
+  https://github.com/j3udiel/meshcore-control-bridge.git \
+  meshcore-control-bridge-pr20
+```
+
+Then edit the temporary copy at:
+
+```text
+/addons/meshcore-control-bridge-pr20/meshcore-control-bridge/config.yaml
+```
+
+Comment the `image:` line before installing from Local Apps:
+
+```yaml
+# image: "ghcr.io/j3udiel/meshcore-control-bridge"
+```
+
+This forces Supervisor to build the local Dockerfile from the checked-out pull
+request branch instead of downloading the published stable GHCR image for the
+same App version. Do not commit this local edit, and do not use this path for
+normal user installation.
 
 ## Required Values
 

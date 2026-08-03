@@ -10,6 +10,9 @@ import yaml
 from meshcore_control.auth.authorization import AuthorizedUser, RoomPolicy
 from meshcore_control.auth.roles import Role, parse_role
 
+WEATHER_STATUS_DEFAULT_LABEL = "Exterior"
+WEATHER_STATUS_LABEL_MAX_LENGTH = 32
+
 
 @dataclass(frozen=True, slots=True)
 class HomeAssistantConfig:
@@ -55,6 +58,13 @@ class StatusEntityConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class WeatherStatusConfig:
+    temperature_entity: str = ""
+    humidity_entity: str = ""
+    label: str = WEATHER_STATUS_DEFAULT_LABEL
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     command_prefix: str = "!"
     database_path: str = "data/audit.db"
@@ -68,6 +78,7 @@ class AppConfig:
     room_policies: dict[str, RoomPolicy] = field(default_factory=dict)
     entities: dict[str, dict[str, str]] = field(default_factory=dict)
     status_entities: dict[str, StatusEntityConfig] = field(default_factory=dict)
+    weather_status: WeatherStatusConfig = field(default_factory=WeatherStatusConfig)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
     security: SecurityConfig = field(default_factory=SecurityConfig)
 
@@ -130,6 +141,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         room_policies=_legacy_room_policies(meshcore),
         entities=dict(file_data.get("entities", {})),
         status_entities=_parse_status_entities(file_data.get("status", {}).get("entities", {})),
+        weather_status=_parse_weather_status(file_data.get("weather_status", {})),
         servers=dict(file_data.get("servers", {})),
         security=_parse_security(file_data.get("security", {})),
     )
@@ -193,6 +205,27 @@ def _parse_status_entities(raw_entities: dict[str, Any]) -> dict[str, StatusEnti
             raise ValueError(f"status entity {alias!r} requires entity_id")
         entities[str(alias)] = StatusEntityConfig(entity_id=entity_id, label=label)
     return entities
+
+
+def _parse_weather_status(raw_weather: dict[str, Any]) -> WeatherStatusConfig:
+    if not isinstance(raw_weather, dict):
+        raise ValueError("weather_status must be a mapping")
+    return WeatherStatusConfig(
+        temperature_entity=str(raw_weather.get("temperature_entity", "") or "").strip(),
+        humidity_entity=str(raw_weather.get("humidity_entity", "") or "").strip(),
+        label=validate_weather_status_label(raw_weather.get("label", WEATHER_STATUS_DEFAULT_LABEL)),
+    )
+
+
+def validate_weather_status_label(value: object) -> str:
+    label = str(value or WEATHER_STATUS_DEFAULT_LABEL).strip() or WEATHER_STATUS_DEFAULT_LABEL
+    if any(character in label for character in ("\n", "\r")):
+        raise ValueError("weather_status.label must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in label):
+        raise ValueError("weather_status.label must not contain control characters")
+    if len(label) > WEATHER_STATUS_LABEL_MAX_LENGTH:
+        raise ValueError("weather_status.label must be 32 characters or fewer")
+    return label
 
 
 def _parse_security(raw_security: dict[str, Any]) -> SecurityConfig:

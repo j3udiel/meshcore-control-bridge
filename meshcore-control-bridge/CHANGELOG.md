@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Add configurable readonly `!exterior` command for Home Assistant outdoor
+  temperature and optional humidity entities.
+
 ## 0.1.7
 
 - Add normalized audit events with correlated IDs for the current message and
