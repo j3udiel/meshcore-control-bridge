@@ -78,11 +78,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.7`,
+The App version in `config.yaml` selects the image tag. For version `0.1.8`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.7
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.8
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -161,13 +161,26 @@ HTTP or TCP endpoint compatible with Supervisor watchdog checks. The Docker
 
 ## Audit Data
 
-Version `0.1.7` adds normalized audit events for the existing readonly command
-flow. The App creates `/data/audit.key` on first start, stores it with restricted
-file permissions, and reuses the same key after restarts. Sender and platform
-message references are stored as HMAC-SHA256 values; raw sender IDs, raw message
-IDs, command arguments, message text, tokens, and the audit key are not stored
-in normalized audit rows.
+Version `0.1.8` includes the normalized audit events introduced in `0.1.7` for
+the existing readonly command flow. The App creates `/data/audit.key` on first
+start, stores it with restricted file permissions, and reuses the same key after
+restarts. Sender and platform message references are stored as HMAC-SHA256
+values; raw sender IDs, raw message IDs, command arguments, message text,
+tokens, and the audit key are not stored in normalized audit rows.
 
 The existing legacy SQLite tables remain in place for compatibility. This
 release does not change commands, authorization, deduplication, or response
 texts.
+
+## Outdoor Status
+
+Version `0.1.8` adds the readonly `!exterior` command. Configure
+`weather_status.temperature_entity` with a Home Assistant temperature entity to
+enable useful output. `weather_status.humidity_entity` is optional, and
+`weather_status.label` controls the short response label. The command does not
+hardcode entity IDs, does not accept entity IDs from messages, and does not
+store sensor values or configured entity IDs in normalized audit metadata.
+
+The Telegram bridge document included in this release is design only. This
+release does not include a Telegram transport, Telegram to MeshCore bridging,
+write commands, or USB release work.

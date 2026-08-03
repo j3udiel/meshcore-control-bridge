@@ -41,10 +41,10 @@ image:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version selects the image tag. Version `0.1.7` means:
+The App version selects the image tag. Version `0.1.8` means:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.7
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.8
 ```
 
 The image publication workflow is manual and tag-driven. It does not publish

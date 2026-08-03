@@ -2,8 +2,19 @@
 
 ## Unreleased
 
+## 0.1.8
+
 - Add configurable readonly `!exterior` command for Home Assistant outdoor
   temperature and optional humidity entities.
+- Use operator-selected Home Assistant temperature and optional humidity
+  entities for `!exterior`.
+- Add a configurable label for the `!exterior` response.
+- Return safe `N/D` values for unavailable, unknown, or missing entities.
+- Document the future Telegram to MeshCore bridge design without adding a
+  Telegram runtime implementation.
+- Do not add write commands, Telegram bridging, USB release work, or hardcoded
+  entity IDs.
+- Keep normalized audit from storing sensor values or configured entity IDs.
 
 ## 0.1.7
 
