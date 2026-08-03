@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.7
+
+- Add normalized audit events with correlated IDs for the current message and
+  command flow.
+- Add private sender and platform-message references using HMAC-SHA256.
+- Create and reuse persistent `/data/audit.key` in the Home Assistant App.
+- Record message receipt, filters, parsing, authorization, command execution,
+  and response outcomes in normalized audit events.
+- Preserve legacy audit tables and existing queries.
+- Keep command behavior, authorization, deduplication, and response text
+  unchanged.
+- Does not include Telegram, bridging, write commands, or USB transport release.
+
 ## 0.1.6
 
 - Hotfix the GitHub Actions App publishing workflow so it builds

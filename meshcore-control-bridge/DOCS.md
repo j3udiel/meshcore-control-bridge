@@ -69,11 +69,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.6`,
+The App version in `config.yaml` selects the image tag. For version `0.1.7`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.6
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.7
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -122,3 +122,16 @@ can be added later after validating the full S6 startup path used by
 Supervisor `watchdog` is intentionally not declared until the App exposes an
 HTTP or TCP endpoint compatible with Supervisor watchdog checks. The Docker
 `HEALTHCHECK` remains internal container health metadata.
+
+## Audit Data
+
+Version `0.1.7` adds normalized audit events for the existing readonly command
+flow. The App creates `/data/audit.key` on first start, stores it with restricted
+file permissions, and reuses the same key after restarts. Sender and platform
+message references are stored as HMAC-SHA256 values; raw sender IDs, raw message
+IDs, command arguments, message text, tokens, and the audit key are not stored
+in normalized audit rows.
+
+The existing legacy SQLite tables remain in place for compatibility. This
+release does not change commands, authorization, deduplication, or response
+texts.
