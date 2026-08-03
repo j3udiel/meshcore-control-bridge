@@ -5,12 +5,15 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
 from meshcore_control.adapters.homeassistant import HomeAssistantStatus
 from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer
 from meshcore_control.auth.roles import Role
 from meshcore_control.commands.router import CommandRouter
-from meshcore_control.config import AppConfig, WeatherStatusConfig
+from meshcore_control.config import AppConfig, WeatherStatusConfig, load_config
+from meshcore_control.homeassistant_app import HomeAssistantAppOptions
 from meshcore_control.models import InboundMessage
 from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
@@ -240,6 +243,138 @@ def test_exterior_uses_configurable_label_and_short_response(tmp_path) -> None:
 
     assert text == "Patio: 24.6 °C · Humedad: 61 %"
     assert len(text) < 80
+
+
+def test_exterior_accepts_32_character_label(tmp_path) -> None:
+    label = "X" * 32
+    text = run_exterior(
+        tmp_path,
+        weather_status=WeatherStatusConfig(temperature_entity=TEMPERATURE_ENTITY, label=label),
+        ha=FakeHA({TEMPERATURE_ENTITY: state("24.6", "°C")}),
+    )
+
+    assert text == f"{label}: 24.6 °C"
+
+
+def test_yaml_weather_status_rejects_too_long_label(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+meshcore:
+  transport: fake
+  channel_index: 1
+weather_status:
+  temperature_entity: ""
+  label: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="32 characters"):
+        load_config(str(config_file))
+
+
+def test_yaml_weather_status_rejects_newline_label(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+meshcore:
+  transport: fake
+  channel_index: 1
+weather_status:
+  temperature_entity: ""
+  label: "Exterior\\nPatio"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="newlines"):
+        load_config(str(config_file))
+
+
+def test_app_weather_status_rejects_control_character_label() -> None:
+    with pytest.raises(ValueError, match="control characters"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "allow_unidentified_readonly_testing": True,
+                "weather_status": {"label": "Ex\tterior"},
+            }
+        )
+
+
+def test_weather_status_empty_label_defaults_to_exterior(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+meshcore:
+  transport: fake
+  channel_index: 1
+weather_status:
+  temperature_entity: ""
+  label: "   "
+""",
+        encoding="utf-8",
+    )
+
+    yaml_config = load_config(str(config_file))
+    app_options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "allow_unidentified_readonly_testing": True,
+            "weather_status": {"label": ""},
+        }
+    )
+
+    assert yaml_config.weather_status.label == "Exterior"
+    assert app_options.weather_status.label == "Exterior"
+
+
+def test_weather_status_label_validation_is_equivalent_for_app_and_yaml(tmp_path) -> None:
+    label = "  Patio  "
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        f"""
+meshcore:
+  transport: fake
+  channel_index: 1
+weather_status:
+  temperature_entity: ""
+  label: "{label}"
+""",
+        encoding="utf-8",
+    )
+
+    yaml_config = load_config(str(config_file))
+    app_options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "allow_unidentified_readonly_testing": True,
+            "weather_status": {"label": label},
+        }
+    )
+
+    assert yaml_config.weather_status.label == "Patio"
+    assert app_options.weather_status.label == "Patio"
+
+
+def test_exterior_long_unit_drops_humidity_without_cutting_unit(tmp_path) -> None:
+    long_unit = "unit-" + ("x" * 180)
+    text = run_exterior(
+        tmp_path,
+        weather_status=WeatherStatusConfig(
+            temperature_entity=TEMPERATURE_ENTITY,
+            humidity_entity=HUMIDITY_ENTITY,
+        ),
+        ha=FakeHA(
+            {
+                TEMPERATURE_ENTITY: state("24.6", "°C"),
+                HUMIDITY_ENTITY: state("61", long_unit),
+            }
+        ),
+    )
+
+    assert text == "Exterior: 24.6 °C"
 
 
 def test_exterior_without_temperature_entity_is_safe(tmp_path) -> None:

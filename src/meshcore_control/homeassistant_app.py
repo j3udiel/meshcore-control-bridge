@@ -16,6 +16,7 @@ from meshcore_control.config import (
     SecurityConfig,
     StatusEntityConfig,
     WeatherStatusConfig,
+    validate_weather_status_label,
 )
 
 SUPERVISOR_REST_BASE_URL = "http://supervisor/core"
@@ -239,7 +240,7 @@ def _parse_weather_status(value: object) -> AppWeatherStatus:
     return AppWeatherStatus(
         temperature_entity=str(data.get("temperature_entity", "") or "").strip(),
         humidity_entity=str(data.get("humidity_entity", "") or "").strip(),
-        label=str(data.get("label", "Exterior") or "Exterior").strip() or "Exterior",
+        label=validate_weather_status_label(data.get("label", "Exterior")),
     )
 
 

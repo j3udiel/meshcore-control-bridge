@@ -8,6 +8,8 @@ from meshcore_control.commands.help import render_help
 from meshcore_control.commands.registry import CommandContext, CommandDefinition, CommandRegistry
 from meshcore_control.config import AppConfig
 
+_EXTERIOR_RESPONSE_MAX_CHARS = 160
+
 
 class HomeAssistantStatusClient(Protocol):
     async def check_available(self) -> HomeAssistantStatus:
@@ -130,7 +132,7 @@ async def exterior(context: CommandContext, args: list[str]) -> str:
     if weather.humidity_entity:
         humidity = await _safe_state_value(client, weather.humidity_entity)
         line = f"{line} · Humedad: {humidity}"
-    return line
+    return _fit_exterior_response(line, f"{label}: {temperature}", label)
 
 
 async def _render_ha_status(ha_client: object | None, status: HomeAssistantStatus) -> str:
@@ -180,3 +182,11 @@ async def _safe_state_value(client: HomeAssistantStatusClient, entity_id: str) -
         return _format_state(await client.get_state(entity_id))
     except Exception:
         return "N/D"
+
+
+def _fit_exterior_response(full_line: str, temperature_line: str, label: str) -> str:
+    if len(full_line) <= _EXTERIOR_RESPONSE_MAX_CHARS:
+        return full_line
+    if len(temperature_line) <= _EXTERIOR_RESPONSE_MAX_CHARS:
+        return temperature_line
+    return f"{label}: N/D"

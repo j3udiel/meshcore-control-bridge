@@ -10,6 +10,9 @@ import yaml
 from meshcore_control.auth.authorization import AuthorizedUser, RoomPolicy
 from meshcore_control.auth.roles import Role, parse_role
 
+WEATHER_STATUS_DEFAULT_LABEL = "Exterior"
+WEATHER_STATUS_LABEL_MAX_LENGTH = 32
+
 
 @dataclass(frozen=True, slots=True)
 class HomeAssistantConfig:
@@ -58,7 +61,7 @@ class StatusEntityConfig:
 class WeatherStatusConfig:
     temperature_entity: str = ""
     humidity_entity: str = ""
-    label: str = "Exterior"
+    label: str = WEATHER_STATUS_DEFAULT_LABEL
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,8 +213,19 @@ def _parse_weather_status(raw_weather: dict[str, Any]) -> WeatherStatusConfig:
     return WeatherStatusConfig(
         temperature_entity=str(raw_weather.get("temperature_entity", "") or "").strip(),
         humidity_entity=str(raw_weather.get("humidity_entity", "") or "").strip(),
-        label=str(raw_weather.get("label", "Exterior") or "Exterior").strip() or "Exterior",
+        label=validate_weather_status_label(raw_weather.get("label", WEATHER_STATUS_DEFAULT_LABEL)),
     )
+
+
+def validate_weather_status_label(value: object) -> str:
+    label = str(value or WEATHER_STATUS_DEFAULT_LABEL).strip() or WEATHER_STATUS_DEFAULT_LABEL
+    if any(character in label for character in ("\n", "\r")):
+        raise ValueError("weather_status.label must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in label):
+        raise ValueError("weather_status.label must not contain control characters")
+    if len(label) > WEATHER_STATUS_LABEL_MAX_LENGTH:
+        raise ValueError("weather_status.label must be 32 characters or fewer")
+    return label
 
 
 def _parse_security(raw_security: dict[str, Any]) -> SecurityConfig:
