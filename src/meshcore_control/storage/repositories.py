@@ -16,6 +16,10 @@ class AuditRepository:
         self.connection = connection
 
     def record_inbound_message(self, message: InboundMessage) -> None:
+        self.insert_inbound_message(message)
+        self.connection.commit()
+
+    def insert_inbound_message(self, message: InboundMessage) -> None:
         self.connection.execute(
             """
             INSERT INTO inbound_messages (
@@ -31,9 +35,28 @@ class AuditRepository:
                 message.received_at.isoformat(),
             ),
         )
-        self.connection.commit()
 
     def record_command(
+        self,
+        *,
+        message: InboundMessage,
+        command: str,
+        args: list[str],
+        result: str,
+        duration_ms: int,
+        error: str | None,
+    ) -> None:
+        self.insert_command(
+            message=message,
+            command=command,
+            args=args,
+            result=result,
+            duration_ms=duration_ms,
+            error=error,
+        )
+        self.connection.commit()
+
+    def insert_command(
         self,
         *,
         message: InboundMessage,
@@ -59,7 +82,6 @@ class AuditRepository:
                 error,
             ),
         )
-        self.connection.commit()
 
     def count_commands(self) -> int:
         row = self.connection.execute("SELECT COUNT(*) AS count FROM command_executions").fetchone()

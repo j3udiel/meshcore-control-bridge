@@ -14,7 +14,12 @@ from meshcore_control.logging import configure_logging
 from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
 from meshcore_control.security.rate_limit import RateLimiter
+from meshcore_control.storage.audit_flow import AuditFlow
 from meshcore_control.storage.database import connect_database
+from meshcore_control.storage.normalized_audit import (
+    NormalizedAuditRepository,
+    NormalizedAuditSettings,
+)
 from meshcore_control.storage.repositories import AuditRepository
 from meshcore_control.transport.base import Transport
 from meshcore_control.transport.homeassistant_meshcore import (
@@ -26,7 +31,11 @@ from meshcore_control.transport.meshcore import MeshCoreTransport
 logger = logging.getLogger(__name__)
 
 
-def build_service(config: AppConfig) -> BridgeService:
+def build_service(
+    config: AppConfig,
+    *,
+    normalized_audit_settings: NormalizedAuditSettings | None = None,
+) -> BridgeService:
     connection = connect_database(config.database_path)
     registry = build_registry()
     services: dict[str, object] = {"registry": registry, "config": config}
@@ -38,10 +47,18 @@ def build_service(config: AppConfig) -> BridgeService:
             timeout_seconds=config.homeassistant.timeout_seconds,
             entity_aliases=config.entities.get("all", {}),
         )
+    legacy_audit = AuditRepository(connection)
+    normalized_settings = normalized_audit_settings or NormalizedAuditSettings.from_environment()
+    audit_flow = AuditFlow(
+        connection=connection,
+        legacy=legacy_audit,
+        normalized=NormalizedAuditRepository(connection, normalized_settings),
+    )
     router = CommandRouter(
         registry=registry,
         authorizer=Authorizer(config.users, room_policies=config.room_policies),
-        audit=AuditRepository(connection),
+        audit=legacy_audit,
+        audit_flow=audit_flow,
         services=services,
         prefix=config.command_prefix,
     )
@@ -52,6 +69,7 @@ def build_service(config: AppConfig) -> BridgeService:
         deduplicator=Deduplicator(
             connection, window_seconds=config.deduplication_window_seconds
         ),
+        audit_flow=audit_flow,
         rate_limiter=RateLimiter(
             max_commands=config.security.rate_limit.commands,
             window_seconds=config.security.rate_limit.window_seconds,
@@ -101,7 +119,12 @@ async def amain() -> None:
     else:
         configure_logging(args.log_level)
         config = load_config(args.config)
-    service = build_service(config)
+    normalized_audit_settings = (
+        NormalizedAuditSettings.homeassistant_app()
+        if args.home_assistant_app
+        else NormalizedAuditSettings.from_environment()
+    )
+    service = build_service(config, normalized_audit_settings=normalized_audit_settings)
     if args.home_assistant_app:
         logger.info("Bridge ready")
     await service.run_forever()

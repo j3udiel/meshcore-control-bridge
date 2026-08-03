@@ -291,6 +291,13 @@ class NormalizedAuditRepository:
     def enabled(self) -> bool:
         return self.settings.enabled
 
+    def warn_if_disabled(self) -> None:
+        if self.settings.enabled:
+            return
+        if self.settings.warn_disabled and not self._disabled_warning_emitted:
+            logger.warning("Normalized audit disabled: no audit key configured")
+        self._disabled_warning_emitted = True
+
     def event_from_inbound(
         self,
         *,
@@ -319,9 +326,7 @@ class NormalizedAuditRepository:
 
     def record(self, event: NormalizedAuditEvent) -> bool:
         if not self.settings.enabled:
-            if self.settings.warn_disabled and not self._disabled_warning_emitted:
-                logger.warning("Normalized audit disabled: no audit key configured")
-            self._disabled_warning_emitted = True
+            self.warn_if_disabled()
             return False
         if self.settings.audit_key is None:
             raise AuditKeyError("normalized audit is enabled without an audit key")
@@ -329,62 +334,84 @@ class NormalizedAuditRepository:
         metadata_json = event.metadata_json()
         created_at = utc_rfc3339(datetime.now(UTC))
         with self.connection:
-            self._record_metadata(
-                "normalized_audit_schema_version",
-                str(NORMALIZED_AUDIT_SCHEMA_VERSION),
-                created_at,
-            )
-            self._record_metadata("audit_key_id", self.settings.audit_key.key_id or "", created_at)
-            self.connection.execute(
-                """
-                INSERT INTO normalized_audit_events (
-                  event_id,
-                  schema_version,
-                  event_type,
-                  correlation_id,
-                  causation_event_id,
-                  transport,
-                  source_room_id,
-                  source_room_kind,
-                  reply_target_transport,
-                  reply_target_room_id,
-                  reply_target_room_kind,
-                  sender_ref_hash,
-                  sender_identity_kind,
-                  sender_stable,
-                  message_ref_hash,
-                  command_name,
-                  command_result,
-                  duration_ms,
-                  metadata_json,
-                  occurred_at,
-                  created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.event_id,
-                    event.schema_version,
-                    event.event_type.value,
-                    event.correlation_id,
-                    event.causation_event_id,
-                    event.transport,
-                    event.source_room_id,
-                    event.source_room_kind,
-                    event.reply_target_transport,
-                    event.reply_target_room_id,
-                    event.reply_target_room_kind,
-                    event.sender_ref_hash,
-                    event.sender_identity_kind,
-                    1 if event.sender_stable else 0,
-                    event.message_ref_hash,
-                    event.command_name,
-                    event.command_result,
-                    event.duration_ms,
-                    metadata_json,
-                    event.occurred_at_text(),
-                    created_at,
-                ),
-            )
+            self.insert_event(event, metadata_json=metadata_json, created_at=created_at)
+        return True
+
+    def insert_event(
+        self,
+        event: NormalizedAuditEvent,
+        *,
+        metadata_json: str | None = None,
+        created_at: str | None = None,
+    ) -> bool:
+        if not self.settings.enabled:
+            self.warn_if_disabled()
+            return False
+        if self.settings.audit_key is None:
+            raise AuditKeyError("normalized audit is enabled without an audit key")
+        self._validate_event(event)
+        resolved_metadata_json = metadata_json or event.metadata_json()
+        resolved_created_at = created_at or utc_rfc3339(datetime.now(UTC))
+        self._record_metadata(
+            "normalized_audit_schema_version",
+            str(NORMALIZED_AUDIT_SCHEMA_VERSION),
+            resolved_created_at,
+        )
+        self._record_metadata(
+            "audit_key_id",
+            self.settings.audit_key.key_id or "",
+            resolved_created_at,
+        )
+        self.connection.execute(
+            """
+            INSERT INTO normalized_audit_events (
+              event_id,
+              schema_version,
+              event_type,
+              correlation_id,
+              causation_event_id,
+              transport,
+              source_room_id,
+              source_room_kind,
+              reply_target_transport,
+              reply_target_room_id,
+              reply_target_room_kind,
+              sender_ref_hash,
+              sender_identity_kind,
+              sender_stable,
+              message_ref_hash,
+              command_name,
+              command_result,
+              duration_ms,
+              metadata_json,
+              occurred_at,
+              created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.event_id,
+                event.schema_version,
+                event.event_type.value,
+                event.correlation_id,
+                event.causation_event_id,
+                event.transport,
+                event.source_room_id,
+                event.source_room_kind,
+                event.reply_target_transport,
+                event.reply_target_room_id,
+                event.reply_target_room_kind,
+                event.sender_ref_hash,
+                event.sender_identity_kind,
+                1 if event.sender_stable else 0,
+                event.message_ref_hash,
+                event.command_name,
+                event.command_result,
+                event.duration_ms,
+                resolved_metadata_json,
+                event.occurred_at_text(),
+                resolved_created_at,
+            ),
+        )
         return True
 
     def _validate_event(self, event: NormalizedAuditEvent) -> None:
