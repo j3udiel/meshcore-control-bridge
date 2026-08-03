@@ -8,9 +8,12 @@
   file.
 - Add Telegram update offset persistence, update deduplication, bounded backoff,
   and safe ignored-update auditing.
-- Does not add Telegram command execution, Telegram to MeshCore forwarding,
-  MeshCore to Telegram forwarding, bidirectional bridging, groups, media,
-  webhooks, or write commands.
+- Add readonly Telegram command execution for `!ping`, `!help`, `!estado`,
+  `!estado ha`, and `!exterior` through the existing command router.
+- Add plain-text Telegram `sendMessage` responses to the authorized private
+  chat.
+- Does not add Telegram to MeshCore forwarding, MeshCore to Telegram forwarding,
+  bidirectional bridging, groups, media, webhooks, or write commands.
 
 ## 0.1.8
 

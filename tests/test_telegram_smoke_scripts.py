@@ -190,7 +190,10 @@ def _create_fake_pr_repo(path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
-    subprocess.run(["git", "-C", str(path), "init", "-b", "feat/telegram-foundation"], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "init", "-b", "feat/telegram-readonly-commands"],
+        check=True,
+    )
     subprocess.run(["git", "-C", str(path), "add", "."], check=True)
     subprocess.run(
         [

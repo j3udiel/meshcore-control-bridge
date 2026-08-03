@@ -5,7 +5,7 @@ ADDONS_ROOT="${MCB_PR23_TEST_ADDONS_ROOT:-/addons}"
 TARGET_DIR="${ADDONS_ROOT%/}/meshcore-control-bridge-pr23"
 SOURCE_DIR="${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-source"
 REPO_URL="${MCB_PR23_TEST_REPO_URL:-https://github.com/j3udiel/meshcore-control-bridge.git}"
-BRANCH="feat/telegram-foundation"
+BRANCH="feat/telegram-readonly-commands"
 EXPECTED_HEAD="${1:-}"
 APP_CONFIG="${TARGET_DIR}/config.yaml"
 
