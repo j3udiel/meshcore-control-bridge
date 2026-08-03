@@ -7,6 +7,31 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-08-03
+
+### Added
+
+- Normalized audit events with correlated event and command-flow identifiers.
+- Private sender and platform-message references using HMAC-SHA256.
+- Persistent `/data/audit.key` handling for the Home Assistant App.
+- Audit coverage for message receipt, filters, parsing, authorization, command
+  execution, and response outcomes.
+
+### Changed
+
+- Legacy audit tables and existing command queries are preserved.
+- Command behavior, authorization, deduplication, and response text are
+  unchanged.
+
+### Not Included
+
+- Telegram transport.
+- Cross-platform bridging.
+- Write commands.
+- USB transport release.
+
+## [0.1.6] - 2026-08-03
+
 ### Added
 
 - Command registry.
