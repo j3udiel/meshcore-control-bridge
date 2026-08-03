@@ -3,10 +3,11 @@ set -euo pipefail
 
 ADDONS_ROOT="${MCB_PR23_TEST_ADDONS_ROOT:-/addons}"
 TARGET_DIR="${ADDONS_ROOT%/}/meshcore-control-bridge-pr23"
+SOURCE_DIR="${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-source"
 REPO_URL="${MCB_PR23_TEST_REPO_URL:-https://github.com/j3udiel/meshcore-control-bridge.git}"
 BRANCH="feat/telegram-foundation"
 EXPECTED_HEAD="${1:-}"
-APP_CONFIG="${TARGET_DIR}/meshcore-control-bridge/config.yaml"
+APP_CONFIG="${TARGET_DIR}/config.yaml"
 
 if [[ "$(id -u)" -eq 0 ]]; then
   umask 022
@@ -31,29 +32,46 @@ if [[ -z "${EXPECTED_HEAD}" ]]; then
   fi
 fi
 
-if [[ -d "${TARGET_DIR}/.git" ]]; then
-  git -C "${TARGET_DIR}" fetch origin "${BRANCH}"
-  git -C "${TARGET_DIR}" switch "${BRANCH}"
-  git -C "${TARGET_DIR}" reset --hard "origin/${BRANCH}"
-elif [[ -e "${TARGET_DIR}" ]]; then
-  printf '%s\n' "${TARGET_DIR} exists but is not a git checkout" >&2
-  exit 1
-else
-  git clone --branch "${BRANCH}" "${REPO_URL}" "${TARGET_DIR}"
+if [[ -d "${TARGET_DIR}/.git" && ! -d "${SOURCE_DIR}/.git" ]]; then
+  mv "${TARGET_DIR}" "${SOURCE_DIR}"
 fi
 
-actual_head="$(git -C "${TARGET_DIR}" rev-parse HEAD)"
+if [[ -d "${SOURCE_DIR}/.git" ]]; then
+  git -C "${SOURCE_DIR}" fetch origin "${BRANCH}"
+  git -C "${SOURCE_DIR}" switch "${BRANCH}"
+  git -C "${SOURCE_DIR}" reset --hard "origin/${BRANCH}"
+elif [[ -e "${SOURCE_DIR}" ]]; then
+  printf '%s\n' "${SOURCE_DIR} exists but is not a git checkout" >&2
+  exit 1
+else
+  git clone --branch "${BRANCH}" "${REPO_URL}" "${SOURCE_DIR}"
+fi
+
+actual_head="$(git -C "${SOURCE_DIR}" rev-parse HEAD)"
 if [[ "${actual_head}" != "${EXPECTED_HEAD}" ]]; then
   printf 'unexpected HEAD: %s\nexpected: %s\n' "${actual_head}" "${EXPECTED_HEAD}" >&2
   exit 1
 fi
 
-if [[ ! -f "${APP_CONFIG}" ]]; then
-  printf 'missing App config: %s\n' "${APP_CONFIG}" >&2
+if [[ -e "${TARGET_DIR}" && ! -d "${TARGET_DIR}" ]]; then
+  printf '%s\n' "${TARGET_DIR} exists but is not a directory" >&2
   exit 1
 fi
 
-tmp_config="$(mktemp "${APP_CONFIG}.tmp.XXXXXX")"
+mkdir -p "${TARGET_DIR}"
+
+tmp_target="$(mktemp -d "${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-build.XXXXXX")"
+cp -R "${SOURCE_DIR}/meshcore-control-bridge/." "${tmp_target}/"
+cp "${SOURCE_DIR}/pyproject.toml" "${tmp_target}/pyproject.toml"
+cp "${SOURCE_DIR}/README.md" "${tmp_target}/README.md"
+cp -R "${SOURCE_DIR}/src" "${tmp_target}/src"
+
+tmp_dockerfile="$(mktemp "${tmp_target}/Dockerfile.tmp.XXXXXX")"
+sed 's#COPY meshcore-control-bridge/run.sh /run.sh#COPY run.sh /run.sh#' \
+  "${tmp_target}/Dockerfile" > "${tmp_dockerfile}"
+mv "${tmp_dockerfile}" "${tmp_target}/Dockerfile"
+
+tmp_config="$(mktemp "${tmp_target}/config.yaml.tmp.XXXXXX")"
 awk '
   $0 == "name: MeshCore Control Bridge" {
     print "name: MeshCore Control Bridge PR23"
@@ -68,13 +86,25 @@ awk '
     next
   }
   { print }
-' "${APP_CONFIG}" > "${tmp_config}"
+' "${tmp_target}/config.yaml" > "${tmp_config}"
 chmod 0644 "${tmp_config}"
-mv "${tmp_config}" "${APP_CONFIG}"
+mv "${tmp_config}" "${tmp_target}/config.yaml"
 
-name_count="$(grep -cx 'name: MeshCore Control Bridge PR23' "${APP_CONFIG}" || true)"
-slug_count="$(grep -cx 'slug: meshcore_control_bridge_pr23' "${APP_CONFIG}" || true)"
-commented_image_count="$(grep -cx '# image: "ghcr.io/j3udiel/meshcore-control-bridge"' "${APP_CONFIG}" || true)"
+for required in config.yaml Dockerfile run.sh pyproject.toml README.md src; do
+  if [[ ! -e "${tmp_target}/${required}" ]]; then
+    printf 'generated App is missing required path: %s\n' "${required}" >&2
+    exit 1
+  fi
+done
+
+if grep -q 'COPY meshcore-control-bridge/run.sh' "${tmp_target}/Dockerfile"; then
+  printf '%s\n' "generated Dockerfile still references nested run.sh" >&2
+  exit 1
+fi
+
+name_count="$(grep -cx 'name: MeshCore Control Bridge PR23' "${tmp_target}/config.yaml" || true)"
+slug_count="$(grep -cx 'slug: meshcore_control_bridge_pr23' "${tmp_target}/config.yaml" || true)"
+commented_image_count="$(grep -cx '# image: "ghcr.io/j3udiel/meshcore-control-bridge"' "${tmp_target}/config.yaml" || true)"
 if [[ "${name_count}" != "1" ]]; then
   printf 'invalid transformed App name count: %s\n' "${name_count}" >&2
   exit 1
@@ -83,7 +113,7 @@ if [[ "${slug_count}" != "1" ]]; then
   printf 'invalid transformed App slug count: %s\n' "${slug_count}" >&2
   exit 1
 fi
-if grep -qx 'image: "ghcr.io/j3udiel/meshcore-control-bridge"' "${APP_CONFIG}"; then
+if grep -qx 'image: "ghcr.io/j3udiel/meshcore-control-bridge"' "${tmp_target}/config.yaml"; then
   printf '%s\n' "active GHCR image line remains in App config" >&2
   exit 1
 fi
@@ -91,6 +121,15 @@ if [[ "${commented_image_count}" != "1" ]]; then
   printf 'invalid commented image line count: %s\n' "${commented_image_count}" >&2
   exit 1
 fi
+
+previous_dir="${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-previous"
+if [[ -e "${previous_dir}" ]]; then
+  mv "${previous_dir}" "${previous_dir}.$$"
+fi
+if [[ -e "${TARGET_DIR}" ]]; then
+  mv "${TARGET_DIR}" "${previous_dir}"
+fi
+mv "${tmp_target}" "${TARGET_DIR}"
 
 printf '%s\n' "Prepared local Home Assistant App test copy:"
 printf '  %s\n' "${TARGET_DIR}"

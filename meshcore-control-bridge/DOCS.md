@@ -251,10 +251,15 @@ the stable App image.
    bash /tmp/prepare-local-telegram-pr23.sh
    ```
 
-   The helper uses only shell tools available in core-ssh. It clones or updates
-   `/addons/meshcore-control-bridge-pr23`, changes the local App name and slug,
-   and comments the `image:` line so Supervisor builds from the local Dockerfile
-   instead of pulling GHCR.
+   The helper uses only shell tools available in core-ssh. It keeps the Git
+   checkout in `/addons/.meshcore-control-bridge-pr23-source` and generates a
+   self-contained local App at `/addons/meshcore-control-bridge-pr23`.
+
+   The generated App root contains `config.yaml`, `Dockerfile`, `run.sh`,
+   `pyproject.toml`, `README.md`, `src/`, translations, and the App
+   documentation. The helper changes the local App name and slug, comments the
+   `image:` line, and rewrites the local Dockerfile so Supervisor can build from
+   that App directory as the Docker build context.
 
    By default it verifies the current remote HEAD of the PR branch. If you want
    to pin a specific commit from the PR, pass it explicitly:

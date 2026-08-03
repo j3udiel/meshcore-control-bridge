@@ -6,6 +6,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -63,13 +65,30 @@ def test_prepare_local_pr23_runs_without_python3(tmp_path: Path) -> None:
     for _ in range(2):
         subprocess.run(["bash", str(script), expected_head], check=True, env=env)
 
-    config = addons_root / "meshcore-control-bridge-pr23/meshcore-control-bridge/config.yaml"
+    app_root = addons_root / "meshcore-control-bridge-pr23"
+    config = app_root / "config.yaml"
     lines = config.read_text(encoding="utf-8").splitlines()
 
+    assert (addons_root / ".meshcore-control-bridge-pr23-source/.git").is_dir()
+    assert (app_root / "Dockerfile").is_file()
+    assert (app_root / "run.sh").is_file()
+    assert (app_root / "pyproject.toml").is_file()
+    assert (app_root / "README.md").is_file()
+    assert (app_root / "src").is_dir()
+    assert not (app_root / "meshcore-control-bridge/config.yaml").exists()
     assert lines.count("name: MeshCore Control Bridge PR23") == 1
     assert lines.count("slug: meshcore_control_bridge_pr23") == 1
     assert 'image: "ghcr.io/j3udiel/meshcore-control-bridge"' not in lines
     assert lines.count('# image: "ghcr.io/j3udiel/meshcore-control-bridge"') == 1
+    dockerfile = (app_root / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY meshcore-control-bridge/run.sh" not in dockerfile
+    _assert_dockerfile_copy_sources_exist(app_root)
+    if shutil.which("docker") is None:
+        pytest.skip("docker is not available")
+    subprocess.run(
+        ["docker", "build", "-t", "meshcore-control-bridge-pr23-context-test", str(app_root)],
+        check=True,
+    )
 
 
 def test_shell_enroll_extracts_private_ids_without_python_or_payload_leak(tmp_path: Path) -> None:
@@ -139,8 +158,26 @@ def test_smoke_docs_do_not_pipe_remote_code_to_shell() -> None:
 
 def _create_fake_pr_repo(path: Path) -> None:
     path.mkdir()
-    config = path / "meshcore-control-bridge/config.yaml"
+    app_dir = path / "meshcore-control-bridge"
+    config = app_dir / "config.yaml"
     config.parent.mkdir(parents=True)
+    (path / "src/meshcore_control").mkdir(parents=True)
+    (path / "src/meshcore_control/__init__.py").write_text("", encoding="utf-8")
+    (path / "README.md").write_text("# Fixture\n", encoding="utf-8")
+    (path / "pyproject.toml").write_text("[project]\nname = 'fixture'\n", encoding="utf-8")
+    (app_dir / "run.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (app_dir / "Dockerfile").write_text(
+        "\n".join(
+            [
+                "FROM scratch",
+                "COPY pyproject.toml README.md /app/package/",
+                "COPY src /app/package/src",
+                "COPY meshcore-control-bridge/run.sh /run.sh",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     config.write_text(
         "\n".join(
             [
@@ -175,9 +212,32 @@ def _create_fake_pr_repo(path: Path) -> None:
 def _path_without_python(tmp_path: Path) -> Path:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for command in ("awk", "bash", "chmod", "git", "grep", "id", "mkdir", "mktemp", "mv", "sed"):
+    for command in (
+        "awk",
+        "bash",
+        "chmod",
+        "cp",
+        "git",
+        "grep",
+        "id",
+        "mkdir",
+        "mktemp",
+        "mv",
+        "sed",
+    ):
         source = shutil.which(command)
         assert source is not None
         (bin_dir / command).symlink_to(source)
     assert not (bin_dir / "python3").exists()
     return bin_dir
+
+
+def _assert_dockerfile_copy_sources_exist(app_root: Path) -> None:
+    for line in (app_root / "Dockerfile").read_text(encoding="utf-8").splitlines():
+        words = line.split()
+        if not words or words[0] != "COPY":
+            continue
+        sources = words[1:-1]
+        for source in sources:
+            assert not source.startswith("--")
+            assert (app_root / source).exists(), f"missing Docker COPY source: {source}"
