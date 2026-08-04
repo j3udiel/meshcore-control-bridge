@@ -98,11 +98,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.10`,
+The App version in `config.yaml` selects the image tag. For version `0.1.11`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.10
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.11
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -219,10 +219,10 @@ MeshCore channel through the existing Home Assistant MeshCore transport.
 Telegram commands and command responses are not forwarded to MeshCore. This
 release does not include MeshCore to Telegram forwarding.
 
-The unreleased MeshCore-to-Telegram branch can forward normal text from the
-configured MeshCore channel to the authorized Telegram private chat. Commands
-still remain local to their originating transport. The bridge still does not
-support groups, media, webhooks, write commands, or USB release work.
+Version `0.1.11` can also forward normal text from the configured MeshCore
+channel to the authorized Telegram private chat. Commands remain local to their
+originating transport. The bridge still does not support groups, media,
+webhooks, write commands, or USB release work.
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with
