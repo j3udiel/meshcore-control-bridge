@@ -110,10 +110,24 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag is on main
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags origin main
+          tag_commit="$(git rev-list -n 1 "${TAG_NAME}")"
+          main_commit="$(git rev-parse origin/main)"
+          if ! git merge-base --is-ancestor "${tag_commit}" "${main_commit}"; then
+            echo "Tag ${TAG_NAME} does not point to a commit reachable from main" >&2
+            exit 1
+          fi
 
       - name: Resolve published image digest
         id: image
@@ -140,17 +154,26 @@ jobs:
             --digest "${DIGEST}" \
             --output /tmp/release-notes.md
 
-      - name: Create release
+      - name: Resolve release type
+        id: release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
           VERSION: ${{ needs.init.outputs.version }}
         run: |
-          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
-            echo "GitHub Release already exists for ${TAG_NAME}" >&2
-            exit 1
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
           fi
-          gh release create "${TAG_NAME}" \
+
+      - name: Create or update release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ needs.init.outputs.version }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        run: |
+          python3 scripts/upsert_github_release.py \
+            --tag "${TAG_NAME}" \
             --title "MeshCore Control Bridge ${VERSION}" \
             --notes-file /tmp/release-notes.md \
-            --verify-tag
+            --prerelease "${PRERELEASE}"
