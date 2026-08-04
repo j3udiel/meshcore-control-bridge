@@ -100,3 +100,57 @@ jobs:
           image-name: ${{ env.IMAGE_NAME }}
           image-tags: |
             ${{ needs.init.outputs.version }}
+
+  release:
+    name: Create GitHub Release
+    needs:
+      - init
+      - manifest
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve published image digest
+        id: image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ needs.init.outputs.version }}
+        run: |
+          digest="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" | awk '/^Digest:/ {print $2; exit}')"
+          if [[ -z "${digest}" ]]; then
+            echo "Could not resolve published image digest" >&2
+            exit 1
+          fi
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build release notes
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ needs.init.outputs.version }}
+        run: |
+          python3 scripts/build_release_notes.py \
+            --version "${VERSION}" \
+            --image "${IMAGE}" \
+            --digest "${DIGEST}" \
+            --output /tmp/release-notes.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+          VERSION: ${{ needs.init.outputs.version }}
+        run: |
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "GitHub Release already exists for ${TAG_NAME}" >&2
+            exit 1
+          fi
+          gh release create "${TAG_NAME}" \
+            --title "MeshCore Control Bridge ${VERSION}" \
+            --notes-file /tmp/release-notes.md \
+            --verify-tag
