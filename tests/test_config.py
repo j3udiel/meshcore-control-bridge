@@ -165,3 +165,38 @@ telegram:
 
     with pytest.raises(ValueError, match="16 characters"):
         load_config(str(config_file))
+
+
+def test_telegram_meshcore_to_telegram_settings(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  meshcore_to_telegram_prefix: "MC: "
+  max_telegram_message_length: 3900
+  inbound_forwarding_rate_limit:
+    messages: 20
+    window_seconds: 60
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.telegram.meshcore_to_telegram_prefix == "MC: "
+    assert config.telegram.max_telegram_message_length == 3900
+    assert config.telegram.inbound_forwarding_rate_limit.commands == 20
+
+
+def test_telegram_meshcore_to_telegram_prefix_rejects_newlines(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  meshcore_to_telegram_prefix: "MC:\\n"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="meshcore_to_telegram_prefix"):
+        load_config(str(config_file))

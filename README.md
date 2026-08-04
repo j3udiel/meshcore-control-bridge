@@ -84,7 +84,7 @@ operating real critical controls.
 - Disabled-by-default Telegram foundation for one bot, one private chat, one
   authorized user, token-file handling, long polling, update filtering, offset
   persistence, update deduplication, readonly command execution, and normal
-  text forwarding from Telegram to MeshCore.
+  text forwarding between Telegram and MeshCore.
 - Rate limiting per sender.
 - Short LoRa-oriented responses.
 - MeshCore diagnostic utility for discovering local support.
@@ -101,8 +101,8 @@ operating real critical controls.
   confirmation.
 - Lights, scenes, climate, energy, server, MQTT, Proxmox, or Docker commands.
 - Confirmation flow for critical actions.
-- MeshCore to Telegram forwarding, bidirectional bridge runtime, REST API, or
-  local CLI transports.
+- REST API or local CLI transports.
+- Bridging commands between platforms.
 - Telegram groups, supergroups, channels, media forwarding, and webhooks.
 - Any write action against Home Assistant or infrastructure.
 
@@ -282,9 +282,14 @@ telegram:
   forward_telegram_to_meshcore: true
   command_prefix: "!"
   max_meshcore_message_length: 180
+  max_telegram_message_length: 3900
   message_prefix: "TG: "
+  meshcore_to_telegram_prefix: "MC: "
   forwarding_rate_limit:
     messages: 5
+    window_seconds: 60
+  inbound_forwarding_rate_limit:
+    messages: 20
     window_seconds: 60
 ```
 
@@ -293,8 +298,10 @@ Prefer storing `HA_TOKEN` in an environment variable instead of YAML.
 Telegram is disabled by default. The current Telegram foundation validates
 configuration, imports the bot token into a protected file, polls authorized
 private-chat updates, executes readonly commands locally, and can forward
-authorized normal text to the configured MeshCore channel. Telegram commands
-and command responses are never forwarded to MeshCore.
+authorized normal text to the configured MeshCore channel. The unreleased bridge
+work can also forward normal MeshCore channel text to Telegram with loop
+prevention for Telegram-originated echoes. Commands and command responses remain
+local to their originating transport and are not bridged.
 
 ## Local Home Assistant URL for Offline Use
 

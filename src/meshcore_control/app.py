@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import logging
+from typing import Protocol
 
+from meshcore_control.auth.roles import Role
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.models import InboundMessage, OutboundMessage
 from meshcore_control.security.deduplication import Deduplicator
 from meshcore_control.security.rate_limit import RateLimiter
-from meshcore_control.storage.audit_flow import AuditFlow
+from meshcore_control.storage.audit_flow import AuditFlow, AuditTrail
 from meshcore_control.transport.base import Transport
 
 logger = logging.getLogger(__name__)
+
+
+class NormalTextForwarder(Protocol):
+    async def forward_normal_text(
+        self,
+        message: InboundMessage,
+        *,
+        audit_trail: AuditTrail | None = None,
+    ) -> bool: ...
 
 
 class BridgeService:
@@ -22,6 +33,7 @@ class BridgeService:
         audit_flow: AuditFlow | None = None,
         rate_limiter: RateLimiter | None = None,
         channel_index: int,
+        normal_text_forwarder: NormalTextForwarder | None = None,
     ) -> None:
         self.transport = transport
         self.router = router
@@ -29,6 +41,7 @@ class BridgeService:
         self.audit_flow = audit_flow
         self.rate_limiter = rate_limiter or RateLimiter()
         self.channel_index = channel_index
+        self.normal_text_forwarder = normal_text_forwarder
 
     async def process_message(self, message: InboundMessage) -> OutboundMessage | None:
         audit_trail = self.audit_flow.message_received(message) if self.audit_flow else None
@@ -70,6 +83,24 @@ class BridgeService:
             return outbound
         response_text = await self.router.handle(message, audit_trail=audit_trail)
         if response_text is None:
+            if self.normal_text_forwarder is not None:
+                if self.router.authorizer.require_message(message, Role.readonly) is None:
+                    logger.info(
+                        "Message ignored reason=sender_not_registered channel=%s",
+                        message.channel_index,
+                    )
+                    if self.audit_flow is not None and audit_trail is not None:
+                        self.audit_flow.message_ignored(
+                            audit_trail,
+                            reason="sender_not_registered",
+                        )
+                    return None
+                handled = await self.normal_text_forwarder.forward_normal_text(
+                    message,
+                    audit_trail=audit_trail,
+                )
+                if handled:
+                    return None
             if self.audit_flow is not None and audit_trail is not None:
                 self.audit_flow.message_ignored(audit_trail, reason="not_a_command")
             return None

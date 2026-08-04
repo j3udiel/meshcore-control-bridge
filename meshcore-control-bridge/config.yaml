@@ -32,9 +32,14 @@ options:
     forward_telegram_to_meshcore: true
     command_prefix: "!"
     max_meshcore_message_length: 180
+    max_telegram_message_length: 3900
     message_prefix: "TG: "
+    meshcore_to_telegram_prefix: "MC: "
     forwarding_rate_limit:
       messages: 5
+      window_seconds: 60
+    inbound_forwarding_rate_limit:
+      messages: 20
       window_seconds: 60
   rate_limit:
     commands: 5
@@ -68,8 +73,13 @@ schema:
     forward_telegram_to_meshcore: bool
     command_prefix: "str(1,4)"
     max_meshcore_message_length: "int(1,1000)"
+    max_telegram_message_length: "int(1,4096)"
     message_prefix: "str?"
+    meshcore_to_telegram_prefix: "str?"
     forwarding_rate_limit:
+      messages: "int(1,100)"
+      window_seconds: "int(1,3600)"
+    inbound_forwarding_rate_limit:
       messages: "int(1,100)"
       window_seconds: "int(1,3600)"
   rate_limit:

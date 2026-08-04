@@ -24,7 +24,7 @@ from meshcore_control.storage.normalized_audit import (
 from meshcore_control.storage.repositories import AuditRepository
 from meshcore_control.telegram.client import TelegramBotApiClient
 from meshcore_control.telegram.identity import TELEGRAM_ROOM_ID, TELEGRAM_SENDER_ID
-from meshcore_control.telegram.service import TelegramFoundationService
+from meshcore_control.telegram.service import MeshCoreToTelegramForwarder, TelegramFoundationService
 from meshcore_control.telegram.store import TelegramStore
 from meshcore_control.telegram.token import load_or_import_token
 from meshcore_control.transport.base import Transport
@@ -158,7 +158,7 @@ async def amain() -> None:
         else NormalizedAuditSettings.from_environment()
     )
     service = build_service(config, normalized_audit_settings=normalized_audit_settings)
-    telegram_service = _build_telegram_foundation_service(
+    telegram_service, meshcore_to_telegram_forwarder = _build_telegram_services(
         config,
         normalized_audit_settings,
         router=service.router,
@@ -166,12 +166,13 @@ async def amain() -> None:
         meshcore_transport=service.transport,
         normalized_audit=service.audit_flow.normalized if service.audit_flow else None,
     )
+    service.normal_text_forwarder = meshcore_to_telegram_forwarder
     if args.home_assistant_app:
         logger.info("Bridge ready")
     await _run_services(service, telegram_service)
 
 
-def _build_telegram_foundation_service(
+def _build_telegram_services(
     config: AppConfig,
     normalized_audit_settings: NormalizedAuditSettings,
     *,
@@ -179,9 +180,9 @@ def _build_telegram_foundation_service(
     audit_flow: AuditFlow | None,
     meshcore_transport: Transport,
     normalized_audit: NormalizedAuditRepository | None,
-) -> TelegramFoundationService | None:
+) -> tuple[TelegramFoundationService | None, MeshCoreToTelegramForwarder | None]:
     if not config.telegram.enabled:
-        return None
+        return None, None
     if normalized_audit_settings.audit_key is None:
         raise RuntimeError("Telegram foundation requires normalized audit key")
     token = load_or_import_token(
@@ -190,15 +191,24 @@ def _build_telegram_foundation_service(
     )
     register_redaction_secret(token.value)
     connection = connect_database(config.database_path)
-    return TelegramFoundationService(
+    client = TelegramBotApiClient(token=token)
+    store = TelegramStore(connection, audit_key=normalized_audit_settings.audit_key)
+    telegram_service = TelegramFoundationService(
         config=config.telegram,
-        client=TelegramBotApiClient(token=token),
-        store=TelegramStore(connection, audit_key=normalized_audit_settings.audit_key),
+        client=client,
+        store=store,
         router=router,
         audit_flow=audit_flow,
         meshcore_transport=meshcore_transport,
         normalized_audit=normalized_audit,
     )
+    meshcore_to_telegram_forwarder = MeshCoreToTelegramForwarder(
+        config=config.telegram,
+        client=client,
+        store=store,
+        normalized_audit=normalized_audit,
+    )
+    return telegram_service, meshcore_to_telegram_forwarder
 
 
 async def _run_services(

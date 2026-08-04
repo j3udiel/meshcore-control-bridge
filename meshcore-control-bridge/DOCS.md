@@ -58,9 +58,14 @@ telegram:
   forward_telegram_to_meshcore: true
   command_prefix: "!"
   max_meshcore_message_length: 180
+  max_telegram_message_length: 3900
   message_prefix: "TG: "
+  meshcore_to_telegram_prefix: "MC: "
   forwarding_rate_limit:
     messages: 5
+    window_seconds: 60
+  inbound_forwarding_rate_limit:
+    messages: 20
     window_seconds: 60
 rate_limit:
   commands: 5
@@ -212,8 +217,12 @@ back to Telegram with plain-text `sendMessage`.
 Version `0.1.10` can forward authorized normal Telegram text to the configured
 MeshCore channel through the existing Home Assistant MeshCore transport.
 Telegram commands and command responses are not forwarded to MeshCore. This
-release does not include MeshCore to Telegram forwarding, bidirectional
-bridging, groups, media, webhooks, write commands, or USB release work.
+release does not include MeshCore to Telegram forwarding.
+
+The unreleased MeshCore-to-Telegram branch can forward normal text from the
+configured MeshCore channel to the authorized Telegram private chat. Commands
+still remain local to their originating transport. The bridge still does not
+support groups, media, webhooks, write commands, or USB release work.
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with
@@ -295,9 +304,14 @@ release and without replacing the stable App image.
       forward_telegram_to_meshcore: true
       command_prefix: "!"
       max_meshcore_message_length: 180
+      max_telegram_message_length: 3900
       message_prefix: "TG: "
+      meshcore_to_telegram_prefix: "MC: "
       forwarding_rate_limit:
         messages: 5
+        window_seconds: 60
+      inbound_forwarding_rate_limit:
+        messages: 20
         window_seconds: 60
     ```
 
@@ -309,6 +323,27 @@ release and without replacing the stable App image.
 14. Send another private text message to the bot.
 15. Confirm that polling continues and pending updates are not discarded again
     on normal restart.
+
+### MeshCore to Telegram forwarding
+
+When Telegram is enabled, normal text received on the configured MeshCore channel
+can be forwarded to the authorized private Telegram chat:
+
+```yaml
+telegram:
+  forward_meshcore_to_telegram: true
+  meshcore_to_telegram_prefix: "MC: "
+  max_telegram_message_length: 3900
+  inbound_forwarding_rate_limit:
+    messages: 20
+    window_seconds: 60
+```
+
+Commands are not bridged. A MeshCore `!ping` still executes locally and replies
+only on MeshCore. A Telegram `!ping` still replies only in Telegram. Normal
+Telegram text forwarded to MeshCore is recorded as pending; if the same transport
+message is later observed back from MeshCore, the App consumes that pending
+record and does not echo the text back to Telegram.
 
 For PRs that include Telegram readonly commands, send these messages in the
 authorized private Telegram chat:
@@ -331,7 +366,8 @@ Expected behavior for the forwarding branch:
 - Telegram receives `Enviado a MeshCore.`
 - MeshCore receives `TG: Voy en 10 minutos` on the configured channel.
 - Telegram commands such as `!ping` are not sent to MeshCore.
-- MeshCore to Telegram forwarding is still not implemented.
+- Normal MeshCore text appears in Telegram with the configured `MC: ` prefix.
+- MeshCore commands such as `!ping` are not sent to Telegram.
 
 After testing:
 
