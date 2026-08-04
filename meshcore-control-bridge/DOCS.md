@@ -93,11 +93,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.9`,
+The App version in `config.yaml` selects the image tag. For version `0.1.10`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.9
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.10
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -209,12 +209,11 @@ existing readonly commands `!ping`, `!help`, `!estado`, `!estado ha`, and
 `!exterior` through the same command router used by MeshCore. Replies are sent
 back to Telegram with plain-text `sendMessage`.
 
-The current development branch can forward authorized normal Telegram text to
-the configured MeshCore channel through the existing Home Assistant MeshCore
-transport. Telegram commands and command responses are not forwarded to
-MeshCore. This branch does not include MeshCore to Telegram forwarding,
-bidirectional bridging, groups, media, webhooks, write commands, or USB release
-work.
+Version `0.1.10` can forward authorized normal Telegram text to the configured
+MeshCore channel through the existing Home Assistant MeshCore transport.
+Telegram commands and command responses are not forwarded to MeshCore. This
+release does not include MeshCore to Telegram forwarding, bidirectional
+bridging, groups, media, webhooks, write commands, or USB release work.
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with

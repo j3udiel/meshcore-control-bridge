@@ -7,27 +7,35 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-08-04
+
 ### Added
 
-- Forward normal text from the authorized Telegram private chat to the
-  configured MeshCore channel through the existing Home Assistant MeshCore
-  transport.
-- Apply configurable Telegram forwarding prefixes, byte limits, and a dedicated
-  Telegram forwarding rate limit.
-- Store pending Telegram to MeshCore bridge records for future loop-prevention
-  work without storing raw message text.
-- Add normalized bridge audit events for Telegram to MeshCore forwarding
-  outcomes.
+- Forward normal text from the authorized Telegram private chat to MeshCore.
+- Configurable Telegram message prefix.
+- UTF-8 byte-aware MeshCore message limiting.
+- Dedicated Telegram forwarding rate limit.
+- Telegram confirmation for accepted, failed, and rate-limited forwards.
+- Pending bridge records for future loop prevention.
+- Normalized bridge audit events.
 
 ### Security / Behavior
 
-- Telegram commands and command responses are not forwarded to MeshCore.
-- MeshCore to Telegram forwarding and bidirectional bridging remain
-  unimplemented.
-- Forwarding records and normalized audit events use HMAC references and do not
-  store raw Telegram text, bot tokens, chat IDs, or user IDs.
-- MeshCore forwarding records `accepted_by_meshcore_transport`; it does not
-  claim final LoRa delivery.
+- Telegram commands and command responses remain local to Telegram.
+- Forwarding uses the existing Home Assistant MeshCore transport.
+- Channel 0 remains prohibited.
+- Raw Telegram text, token, chat ID and user ID are not stored in normalized
+  audit.
+- `accepted_by_meshcore_transport` does not mean final LoRa delivery.
+
+### Not Included
+
+- MeshCore to Telegram forwarding.
+- Bidirectional bridging.
+- Runtime loop prevention.
+- Groups, multimedia or webhooks.
+- Write commands.
+- USB release work.
 
 ## [0.1.9] - 2026-08-04
 

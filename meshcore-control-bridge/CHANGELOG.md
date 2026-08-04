@@ -2,21 +2,25 @@
 
 ## Unreleased
 
-- Forward normal text from the authorized Telegram private chat to the
-  configured MeshCore channel through the existing Home Assistant MeshCore
-  transport.
-- Apply `telegram.message_prefix`,
-  `telegram.max_meshcore_message_length`, and
-  `telegram.forwarding_rate_limit` to normal Telegram text forwarding.
-- Confirm successful forwarding to Telegram with `Enviado a MeshCore.` and
-  forwarding failures with `No se pudo enviar a MeshCore.`.
-- Store pending Telegram to MeshCore bridge records for future loop-prevention
-  work without storing raw message text.
-- Add normalized bridge audit events for Telegram to MeshCore forwarding
-  outcomes.
+## 0.1.10
+
+- Forward normal text from the authorized Telegram private chat to MeshCore.
+- Add configurable Telegram message prefix.
+- Add UTF-8 byte-aware MeshCore message limiting.
+- Add a dedicated Telegram forwarding rate limit.
+- Confirm accepted, failed, and rate-limited forwards in Telegram.
+- Store pending bridge records for future loop prevention.
+- Add normalized bridge audit events.
 - Keep Telegram commands and command responses local to Telegram.
-- Do not add MeshCore to Telegram forwarding, bidirectional bridging, groups,
-  media, webhooks, write commands, or USB release work.
+- Use the existing Home Assistant MeshCore transport for forwarding.
+- Keep channel 0 prohibited.
+- Do not store raw Telegram text, token, chat ID, or user ID in normalized
+  audit.
+- Treat `accepted_by_meshcore_transport` as transport acceptance, not final LoRa
+  delivery.
+- Does not add MeshCore to Telegram forwarding, bidirectional bridging, runtime
+  loop prevention, groups, media, webhooks, write commands, or USB release
+  work.
 
 ## 0.1.9
 
