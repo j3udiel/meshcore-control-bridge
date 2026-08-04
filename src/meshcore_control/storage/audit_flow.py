@@ -24,6 +24,7 @@ IGNORE_REASONS = frozenset(
         "duplicate",
         "rate_limited",
         "not_a_command",
+        "sender_not_registered",
     }
 )
 AUTHORIZATION_RESULTS = frozenset({"allowed", "denied"})

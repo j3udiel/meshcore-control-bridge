@@ -13,4 +13,4 @@ configuration:
     description: Optional read-only Home Assistant entities used by !exterior.
   telegram:
     name: Telegram
-    description: Disabled-by-default Telegram Bot API support for readonly commands and optional Telegram to MeshCore text forwarding.
+    description: Disabled-by-default Telegram Bot API support for readonly commands and optional normal-text forwarding with MeshCore.

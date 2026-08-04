@@ -84,8 +84,13 @@ class AppTelegramOptions:
     forward_telegram_to_meshcore: bool = True
     command_prefix: str = "!"
     max_meshcore_message_length: int = 180
+    max_telegram_message_length: int = 3900
     message_prefix: str = "TG: "
+    meshcore_to_telegram_prefix: str = "MC: "
     forwarding_rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
+    inbound_forwarding_rate_limit: RateLimitConfig = field(
+        default_factory=lambda: RateLimitConfig(commands=20, window_seconds=60)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,8 +218,11 @@ class HomeAssistantAppOptions:
                 forward_telegram_to_meshcore=self.telegram.forward_telegram_to_meshcore,
                 command_prefix=self.telegram.command_prefix,
                 max_meshcore_message_length=self.telegram.max_meshcore_message_length,
+                max_telegram_message_length=self.telegram.max_telegram_message_length,
                 message_prefix=self.telegram.message_prefix,
+                meshcore_to_telegram_prefix=self.telegram.meshcore_to_telegram_prefix,
                 forwarding_rate_limit=self.telegram.forwarding_rate_limit,
+                inbound_forwarding_rate_limit=self.telegram.inbound_forwarding_rate_limit,
             ),
             security=SecurityConfig(rate_limit=self.rate_limit),
         )
@@ -295,10 +303,23 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
     )
     if max_meshcore_message_length < 1:
         raise ValueError("telegram.max_meshcore_message_length must be positive")
+    max_telegram_message_length = _int(
+        data.get("max_telegram_message_length", 3900),
+        "telegram.max_telegram_message_length",
+    )
+    if max_telegram_message_length < 1:
+        raise ValueError("telegram.max_telegram_message_length must be positive")
     command_prefix = str(data.get("command_prefix", "!") or "!")
     if not command_prefix:
         raise ValueError("telegram.command_prefix must not be empty")
-    message_prefix = _validate_telegram_message_prefix(data.get("message_prefix", "TG: "))
+    message_prefix = _validate_telegram_message_prefix(
+        data.get("message_prefix", "TG: "),
+        "telegram.message_prefix",
+    )
+    meshcore_to_telegram_prefix = _validate_telegram_message_prefix(
+        data.get("meshcore_to_telegram_prefix", "MC: "),
+        "telegram.meshcore_to_telegram_prefix",
+    )
     forwarding_rate_limit_data = _mapping(
         data.get("forwarding_rate_limit", {}),
         "telegram.forwarding_rate_limit",
@@ -317,6 +338,24 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
         raise ValueError("telegram.forwarding_rate_limit.messages must be positive")
     if forwarding_rate_limit.window_seconds < 1:
         raise ValueError("telegram.forwarding_rate_limit.window_seconds must be positive")
+    inbound_forwarding_rate_limit_data = _mapping(
+        data.get("inbound_forwarding_rate_limit", {}),
+        "telegram.inbound_forwarding_rate_limit",
+    )
+    inbound_forwarding_rate_limit = RateLimitConfig(
+        commands=_int(
+            inbound_forwarding_rate_limit_data.get("messages", 20),
+            "telegram.inbound_forwarding_rate_limit.messages",
+        ),
+        window_seconds=_int(
+            inbound_forwarding_rate_limit_data.get("window_seconds", 60),
+            "telegram.inbound_forwarding_rate_limit.window_seconds",
+        ),
+    )
+    if inbound_forwarding_rate_limit.commands < 1:
+        raise ValueError("telegram.inbound_forwarding_rate_limit.messages must be positive")
+    if inbound_forwarding_rate_limit.window_seconds < 1:
+        raise ValueError("telegram.inbound_forwarding_rate_limit.window_seconds must be positive")
     options = AppTelegramOptions(
         enabled=bool(data.get("enabled", False)),
         bot_token_import=str(data.get("bot_token_import", "") or ""),
@@ -328,8 +367,11 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
         forward_telegram_to_meshcore=bool(data.get("forward_telegram_to_meshcore", True)),
         command_prefix=command_prefix,
         max_meshcore_message_length=max_meshcore_message_length,
+        max_telegram_message_length=max_telegram_message_length,
         message_prefix=message_prefix,
+        meshcore_to_telegram_prefix=meshcore_to_telegram_prefix,
         forwarding_rate_limit=forwarding_rate_limit,
+        inbound_forwarding_rate_limit=inbound_forwarding_rate_limit,
     )
     if options.enabled:
         if not options.allowed_private_chat_id:
@@ -341,14 +383,14 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
     return options
 
 
-def _validate_telegram_message_prefix(value: object) -> str:
+def _validate_telegram_message_prefix(value: object, field_name: str) -> str:
     prefix = str(value or "")
     if any(character in prefix for character in ("\n", "\r")):
-        raise ValueError("telegram.message_prefix must not contain newlines")
+        raise ValueError(f"{field_name} must not contain newlines")
     if any(ord(character) < 32 or ord(character) == 127 for character in prefix):
-        raise ValueError("telegram.message_prefix must not contain control characters")
+        raise ValueError(f"{field_name} must not contain control characters")
     if len(prefix) > 16:
-        raise ValueError("telegram.message_prefix must be 16 characters or fewer")
+        raise ValueError(f"{field_name} must be 16 characters or fewer")
     return prefix
 
 

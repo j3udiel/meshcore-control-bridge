@@ -38,7 +38,9 @@ TELEGRAM_REASONS = frozenset(
         "user_not_authorized",
     }
 )
-BRIDGE_STATUSES = frozenset({"accepted_by_meshcore_transport", "failed", "dropped"})
+BRIDGE_STATUSES = frozenset(
+    {"accepted_by_meshcore_transport", "accepted_by_telegram", "observed_echo", "failed", "dropped"}
+)
 BRIDGE_PENDING_WINDOW_SECONDS = 600
 
 
@@ -223,6 +225,65 @@ class TelegramStore:
                 ),
             )
         return record
+
+    def consume_pending_echo(
+        self,
+        *,
+        destination_transport: str,
+        destination_room_id: str,
+        content: str,
+        size_bytes: int,
+    ) -> TelegramBridgeRecord | None:
+        now = self.clock()
+        content_ref_hash = self.content_ref_hash(content)
+        with self.connection:
+            self.connection.execute(
+                "DELETE FROM telegram_bridge_pending WHERE expires_at <= ?",
+                (now,),
+            )
+            row = self.connection.execute(
+                """
+                SELECT *
+                FROM telegram_bridge_pending
+                WHERE destination_transport = ?
+                  AND destination_room_id = ?
+                  AND content_ref_hash = ?
+                  AND size_bytes = ?
+                  AND status = ?
+                  AND expires_at > ?
+                ORDER BY created_at
+                LIMIT 1
+                """,
+                (
+                    destination_transport,
+                    destination_room_id,
+                    content_ref_hash,
+                    size_bytes,
+                    "accepted_by_meshcore_transport",
+                    now,
+                ),
+            ).fetchone()
+            if row is None:
+                return None
+            self.connection.execute(
+                """
+                UPDATE telegram_bridge_pending
+                SET status = ?
+                WHERE bridge_message_id = ?
+                """,
+                ("observed_echo", row["bridge_message_id"]),
+            )
+        return TelegramBridgeRecord(
+            bridge_message_id=str(row["bridge_message_id"]),
+            correlation_id=str(row["correlation_id"]),
+            destination_transport=str(row["destination_transport"]),
+            destination_room_id=str(row["destination_room_id"]),
+            content_ref_hash=str(row["content_ref_hash"]),
+            size_bytes=int(row["size_bytes"]),
+            status="observed_echo",
+            created_at=float(row["created_at"]),
+            expires_at=float(row["expires_at"]),
+        )
 
     def refs(
         self,

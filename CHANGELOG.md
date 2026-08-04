@@ -7,6 +7,32 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Forward normal text from the configured MeshCore channel to the authorized
+  Telegram private chat.
+- Configurable MeshCore-to-Telegram prefix and Telegram response size limit.
+- Dedicated MeshCore-to-Telegram forwarding rate limit.
+- Pending bridge record consumption for Telegram-originated MeshCore echoes.
+- Normalized bridge audit events for MeshCore-to-Telegram forwarding decisions.
+
+### Security / Behavior
+
+- MeshCore and Telegram commands remain local to their originating transport.
+- Telegram-originated text observed back from MeshCore is not reflected to
+  Telegram.
+- Raw MeshCore text, sender IDs, Telegram chat IDs, Telegram user IDs, and bot
+  tokens are not stored in normalized bridge audit.
+- `accepted_by_telegram` means Telegram Bot API acceptance, not user-read
+  confirmation.
+
+### Not Included
+
+- Bridging commands between platforms.
+- Telegram groups, multimedia, webhooks, replies, or multiple chats.
+- Write commands.
+- USB release work.
+
 ## [0.1.10] - 2026-08-04
 
 ### Added

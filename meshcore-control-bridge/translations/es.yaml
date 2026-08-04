@@ -13,4 +13,4 @@ configuration:
     description: Entidades readonly opcionales de Home Assistant usadas por !exterior.
   telegram:
     name: Telegram
-    description: Soporte Telegram Bot API desactivado por defecto para comandos readonly y reenvio opcional de texto Telegram a MeshCore.
+    description: Soporte Telegram Bot API desactivado por defecto para comandos readonly y reenvio opcional de texto normal con MeshCore.
