@@ -90,11 +90,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.8`,
+The App version in `config.yaml` selects the image tag. For version `0.1.9`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.8
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.9
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -173,7 +173,7 @@ HTTP or TCP endpoint compatible with Supervisor watchdog checks. The Docker
 
 ## Audit Data
 
-Version `0.1.8` includes the normalized audit events introduced in `0.1.7` for
+Version `0.1.9` includes the normalized audit events introduced in `0.1.7` for
 the existing readonly command flow. The App creates `/data/audit.key` on first
 start, stores it with restricted file permissions, and reuses the same key after
 restarts. Sender and platform message references are stored as HMAC-SHA256
@@ -186,16 +186,12 @@ texts.
 
 ## Outdoor Status
 
-Version `0.1.8` adds the readonly `!exterior` command. Configure
+Version `0.1.8` added the readonly `!exterior` command. Configure
 `weather_status.temperature_entity` with a Home Assistant temperature entity to
 enable useful output. `weather_status.humidity_entity` is optional, and
 `weather_status.label` controls the short response label. The command does not
 hardcode entity IDs, does not accept entity IDs from messages, and does not
 store sensor values or configured entity IDs in normalized audit metadata.
-
-The Telegram bridge document included in this release is design only. This
-release does not include a Telegram transport, Telegram to MeshCore bridging,
-write commands, or USB release work.
 
 ## Telegram Foundation
 
@@ -205,9 +201,18 @@ and long polling. It imports the bot token once from `telegram.bot_token_import`
 and stores it in `telegram.bot_token_file`, normally
 `/data/telegram.bot_token`, with restricted file permissions.
 
-This foundation does not execute Telegram commands and does not forward messages
-between Telegram and MeshCore yet. It only validates configuration, manages the
-token file, clears pending updates on first activation, polls Telegram with
+Version `0.1.9` allows the authorized private Telegram chat to execute the
+existing readonly commands `!ping`, `!help`, `!estado`, `!estado ha`, and
+`!exterior` through the same command router used by MeshCore. Replies are sent
+back to Telegram with plain-text `sendMessage`.
+
+Normal Telegram text is still `foundation_only` and is not forwarded to
+MeshCore. This release does not include Telegram to MeshCore forwarding,
+MeshCore to Telegram forwarding, bidirectional bridging, groups, media,
+webhooks, write commands, or USB release work.
+
+The Telegram runtime validates configuration, manages the token file, clears
+pending updates on first activation, polls Telegram with
 `allowed_updates=["message"]`, filters unsupported or unauthorized updates,
 persists `last_update_id`, deduplicates repeated updates, and records safe audit
 events without raw message text, raw chat IDs, raw user IDs, or token values.

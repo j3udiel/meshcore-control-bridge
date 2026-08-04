@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.9
+
 - Add disabled-by-default Telegram v1 foundation for one bot, one private chat,
   one authorized user, and long polling.
 - Add secure Telegram bot token import and persistence to a protected token
@@ -12,8 +14,15 @@
   `!estado ha`, and `!exterior` through the existing command router.
 - Add plain-text Telegram `sendMessage` responses to the authorized private
   chat.
+- Keep Telegram disabled by default.
+- Map Telegram v1 to the readonly role only.
+- Keep raw Telegram bot tokens, message text, chat IDs, and user IDs out of
+  normalized audit rows.
+- Do not send Telegram commands or responses to MeshCore.
+- Do not forward normal Telegram text yet.
 - Does not add Telegram to MeshCore forwarding, MeshCore to Telegram forwarding,
-  bidirectional bridging, groups, media, webhooks, or write commands.
+  bidirectional bridging, groups, media, webhooks, write commands, or USB
+  release work.
 
 ## 0.1.8
 

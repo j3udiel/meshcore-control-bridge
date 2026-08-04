@@ -7,6 +7,8 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-08-04
+
 ### Added
 
 - Disabled-by-default Telegram v1 foundation for one bot, one private chat, one
@@ -18,12 +20,23 @@ versioning once releases begin.
   `!estado ha`, and `!exterior` through the existing command router.
 - Plain-text Telegram `sendMessage` responses to the authorized private chat.
 
+### Security / Behavior
+
+- Telegram is disabled by default.
+- Telegram v1 maps the authorized private chat and user to the readonly role.
+- Raw Telegram bot tokens, message text, chat IDs, and user IDs are not stored
+  in normalized audit rows.
+- Telegram commands and responses are not sent to MeshCore.
+- Normal Telegram text is not forwarded yet.
+
 ### Not Included
 
 - Telegram to MeshCore forwarding.
 - MeshCore to Telegram forwarding.
 - Bidirectional bridging or loop-prevention runtime.
-- Telegram groups, supergroups, channels, media, webhooks, or write commands.
+- Telegram groups, supergroups, channels, media, or webhooks.
+- Write commands.
+- USB transport release work.
 
 ## [0.1.8] - 2026-08-03
 
