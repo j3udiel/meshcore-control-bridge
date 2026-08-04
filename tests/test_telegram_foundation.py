@@ -467,6 +467,35 @@ async def test_telegram_normal_text_forwards_to_meshcore(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_telegram_forward_pending_record_lock_does_not_crash_after_send(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "audit.db"
+    locker = connect_database(str(database_path))
+
+    class LockingMeshCoreTransport(FakeMeshCoreTransport):
+        async def send(self, message: OutboundMessage) -> None:
+            await super().send(message)
+            locker.execute("BEGIN IMMEDIATE")
+
+    meshcore = LockingMeshCoreTransport()
+    service, client, connection = _command_service(
+        tmp_path,
+        client=FakeTelegramClient(),
+        meshcore_transport=meshcore,
+    )
+    connection.execute("PRAGMA busy_timeout=1")
+
+    decision = await service.process_update(_message(70, text="hello"))
+
+    assert decision.reason == "forwarded"
+    assert meshcore.sent[0].text == "TG: hello"
+    assert client.send_message_calls == [{"chat_id": "1001", "text": "Enviado a MeshCore."}]
+    assert not connection.in_transaction
+    locker.rollback()
+
+
+@pytest.mark.asyncio
 async def test_telegram_forward_applies_prefix_and_channel(tmp_path: Path) -> None:
     meshcore = FakeMeshCoreTransport()
     service, _client, _connection = _command_service(

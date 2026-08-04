@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from meshcore_control.commands.parser import ParsedCommand
 from meshcore_control.commands.registry import CommandRegistry
 from meshcore_control.models import InboundMessage, OutboundMessage
+from meshcore_control.storage.database import write_transaction
 from meshcore_control.storage.normalized_audit import (
     NormalizedAuditEvent,
     NormalizedAuditEventType,
@@ -105,8 +106,7 @@ class AuditFlow:
                 "identity_stable": message.sender.stable if message.sender is not None else False,
             },
         )
-        with self.connection:
-            self.normalized.insert_event(event)
+        write_transaction(self.connection, lambda: self.normalized.insert_event(event))
         return AuditTrail(
             message=message,
             received_event_id=event.event_id,
@@ -186,7 +186,8 @@ class AuditFlow:
         if result not in COMMAND_RESULTS:
             raise ValueError("invalid command result")
         if not self.normalized_enabled:
-            with self.connection:
+
+            def record_legacy() -> None:
                 self.legacy.insert_inbound_message(trail.message)
                 self.legacy.insert_command(
                     message=trail.message,
@@ -196,6 +197,8 @@ class AuditFlow:
                     duration_ms=duration_ms,
                     error=error,
                 )
+
+            write_transaction(self.connection, record_legacy)
             return trail
         event = self._event(
             trail,
@@ -205,7 +208,8 @@ class AuditFlow:
             duration_ms=duration_ms,
             metadata={"command_result": result},
         )
-        with self.connection:
+
+        def record_command() -> None:
             self.legacy.insert_inbound_message(trail.message)
             self.legacy.insert_command(
                 message=trail.message,
@@ -216,6 +220,8 @@ class AuditFlow:
                 error=error,
             )
             self.normalized.insert_event(event)
+
+        write_transaction(self.connection, record_command)
         return trail.child(event.event_id)
 
     def response_sent(self, trail: AuditTrail, outbound: OutboundMessage) -> AuditTrail:
@@ -269,8 +275,7 @@ class AuditFlow:
     ) -> AuditTrail:
         if not self.normalized_enabled:
             return trail
-        with self.connection:
-            self.normalized.insert_event(event)
+        write_transaction(self.connection, lambda: self.normalized.insert_event(event))
         return trail.child(event.event_id)
 
 

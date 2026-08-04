@@ -234,6 +234,32 @@ async def test_meshcore_normal_text_forwards_to_telegram(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_pending_echo_lock_does_not_crash_or_echo_to_telegram(tmp_path: Path) -> None:
+    database_path = tmp_path / "audit.db"
+    locker = connect_database(str(database_path))
+    connection = connect_database(str(database_path))
+    connection.execute("PRAGMA busy_timeout=1")
+    locker.execute("BEGIN IMMEDIATE")
+    client = FakeTelegramClient()
+    forwarder = MeshCoreToTelegramForwarder(
+        config=_telegram_config(),
+        client=client,
+        store=TelegramStore(
+            connection,
+            audit_key=AuditKey(b"t" * AUDIT_KEY_MIN_BYTES, key_id="tg-key"),
+        ),
+        sleep=_noop_sleep,
+    )
+
+    handled = await forwarder.forward_normal_text(_message("TG: hello"))
+
+    assert handled is True
+    assert client.send_message_calls == []
+    assert not connection.in_transaction
+    locker.rollback()
+
+
+@pytest.mark.asyncio
 async def test_meshcore_to_telegram_prefix_can_be_disabled(tmp_path: Path) -> None:
     built = _build_bridge(
         tmp_path,

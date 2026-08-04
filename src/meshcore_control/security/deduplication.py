@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable
 
 from meshcore_control.models import InboundMessage
+from meshcore_control.storage.database import write_transaction
 
 
 class Deduplicator:
@@ -22,22 +23,25 @@ class Deduplicator:
 
     def seen_or_store(self, message: InboundMessage) -> bool:
         now = self.clock()
-        self.connection.execute("DELETE FROM deduplication_keys WHERE expires_at < ?", (now,))
         key = self._key(message)
         keys = (key, *self._legacy_keys(message))
-        for candidate in keys:
-            row = self.connection.execute(
-                "SELECT dedup_key FROM deduplication_keys WHERE dedup_key = ?", (candidate,)
-            ).fetchone()
-            if row is not None:
-                self.connection.commit()
-                return True
-        self.connection.execute(
-            "INSERT INTO deduplication_keys (dedup_key, expires_at) VALUES (?, ?)",
-            (key, now + self.window_seconds),
-        )
-        self.connection.commit()
-        return False
+
+        def store_key() -> bool:
+            self.connection.execute("DELETE FROM deduplication_keys WHERE expires_at < ?", (now,))
+            for candidate in keys:
+                row = self.connection.execute(
+                    "SELECT dedup_key FROM deduplication_keys WHERE dedup_key = ?",
+                    (candidate,),
+                ).fetchone()
+                if row is not None:
+                    return True
+            self.connection.execute(
+                "INSERT INTO deduplication_keys (dedup_key, expires_at) VALUES (?, ?)",
+                (key, now + self.window_seconds),
+            )
+            return False
+
+        return write_transaction(self.connection, store_key)
 
     def _key(self, message: InboundMessage) -> str:
         source_room = message.source_room
