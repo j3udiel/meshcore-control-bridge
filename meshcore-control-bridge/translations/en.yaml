@@ -12,5 +12,5 @@ configuration:
     name: Outdoor status
     description: Optional read-only Home Assistant entities used by !exterior.
   telegram:
-    name: Telegram foundation
-    description: Disabled-by-default Telegram Bot API foundation for future readonly command and bridge support.
+    name: Telegram
+    description: Disabled-by-default Telegram Bot API support for readonly commands and optional Telegram to MeshCore text forwarding.

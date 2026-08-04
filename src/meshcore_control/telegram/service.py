@@ -11,23 +11,33 @@ import httpx
 
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import TelegramConfig
-from meshcore_control.models import InboundMessage, MessageIdentity, OutboundMessage
+from meshcore_control.models import InboundMessage, MessageIdentity, OutboundMessage, RoomRef
+from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.storage.audit_flow import AuditFlow, AuditTrail
+from meshcore_control.storage.normalized_audit import (
+    NormalizedAuditEventType,
+    NormalizedAuditRepository,
+)
 from meshcore_control.telegram.client import (
     TelegramApiError,
     TelegramConflictError,
     TelegramRateLimitError,
 )
 from meshcore_control.telegram.identity import (
+    TELEGRAM_ROOM_ID,
     TELEGRAM_SENDER_ID,
     TELEGRAM_TRANSPORT,
     telegram_room,
     telegram_sender,
 )
 from meshcore_control.telegram.store import TelegramAuditRefs, TelegramStore
+from meshcore_control.transport.base import Transport
 
 logger = logging.getLogger(__name__)
 TELEGRAM_RESPONSE_MAX_CHARS = 3900
+MESHCORE_FORWARD_SUCCESS_TEXT = "Enviado a MeshCore."
+MESHCORE_FORWARD_FAILURE_TEXT = "No se pudo enviar a MeshCore."
+MESHCORE_TRANSPORT_NAME = "homeassistant-meshcore"
 
 
 class TelegramClientProtocol(Protocol):
@@ -68,6 +78,8 @@ class TelegramFoundationService:
         sleep: SleepCallable = asyncio.sleep,
         router: CommandRouter | None = None,
         audit_flow: AuditFlow | None = None,
+        meshcore_transport: Transport | None = None,
+        normalized_audit: NormalizedAuditRepository | None = None,
     ) -> None:
         self.config = config
         self.client = client
@@ -78,6 +90,12 @@ class TelegramFoundationService:
         self.sleep = sleep
         self.router = router
         self.audit_flow = audit_flow
+        self.meshcore_transport = meshcore_transport
+        self.normalized_audit = normalized_audit
+        self.forwarding_rate_limiter = RateLimiter(
+            max_commands=config.forwarding_rate_limit.commands,
+            window_seconds=config.forwarding_rate_limit.window_seconds,
+        )
         self._stopping = False
 
     async def run(self) -> None:
@@ -164,6 +182,14 @@ class TelegramFoundationService:
                 refs=refs,
                 chat_type=chat_type,
             )
+        if reason == "foundation_only" and message is not None and isinstance(text, str):
+            return await self._process_forward_update(
+                update_id=update_id,
+                message=message,
+                refs=refs,
+                chat_type=chat_type,
+                text=text,
+            )
         event_type = (
             "telegram.update.accepted"
             if reason == "foundation_only"
@@ -214,6 +240,182 @@ class TelegramFoundationService:
             "text",
         )
         return TelegramUpdateDecision(update_id, "command", chat_type, "text")
+
+    async def _process_forward_update(
+        self,
+        *,
+        update_id: int,
+        message: dict[str, Any],
+        refs: TelegramAuditRefs,
+        chat_type: str | None,
+        text: str,
+    ) -> TelegramUpdateDecision:
+        inbound = self._inbound_message(update_id=update_id, text="[telegram-text]", refs=refs)
+        rendered = render_meshcore_forward_message(
+            text=text,
+            prefix=self.config.message_prefix,
+            max_bytes=self.config.max_meshcore_message_length,
+        )
+        size_bytes = len(rendered.text.encode("utf-8")) if rendered.text else 0
+        received_event_id = self._audit_bridge(
+            NormalizedAuditEventType.BRIDGE_MESSAGE_RECEIVED,
+            inbound=inbound,
+            metadata={
+                "direction": "telegram_to_meshcore",
+                "source_transport": TELEGRAM_TRANSPORT,
+                "destination_transport": MESHCORE_TRANSPORT_NAME,
+                "size_bytes": len((self.config.message_prefix + text.strip()).encode("utf-8")),
+            },
+        )
+        if not self.config.forward_telegram_to_meshcore:
+            self._audit_bridge(
+                NormalizedAuditEventType.BRIDGE_MESSAGE_IGNORED,
+                inbound=inbound,
+                metadata={
+                    "direction": "telegram_to_meshcore",
+                    "source_transport": TELEGRAM_TRANSPORT,
+                    "destination_transport": MESHCORE_TRANSPORT_NAME,
+                    "reason": "forward_disabled",
+                    "size_bytes": size_bytes,
+                    "truncated": rendered.truncated,
+                },
+                causation_event_id=received_event_id,
+            )
+            self._audit("telegram.update.ignored", "forward_disabled", refs, chat_type, "text")
+            logger.info(
+                "Telegram update classified reason=%s chat_type=%s message_type=%s",
+                "forward_disabled",
+                chat_type or "unknown",
+                "text",
+            )
+            return TelegramUpdateDecision(update_id, "forward_disabled", chat_type, "text")
+        if rendered.text is None:
+            self._audit_bridge(
+                NormalizedAuditEventType.BRIDGE_MESSAGE_IGNORED,
+                inbound=inbound,
+                metadata={
+                    "direction": "telegram_to_meshcore",
+                    "source_transport": TELEGRAM_TRANSPORT,
+                    "destination_transport": MESHCORE_TRANSPORT_NAME,
+                    "reason": "dropped",
+                    "size_bytes": 0,
+                    "truncated": rendered.truncated,
+                },
+                causation_event_id=received_event_id,
+            )
+            self.store.create_bridge_record(
+                correlation_id=inbound.message.correlation_id if inbound.message else "",
+                destination_transport=MESHCORE_TRANSPORT_NAME,
+                destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
+                content="",
+                size_bytes=0,
+                status="dropped",
+            )
+            self._audit("telegram.update.ignored", "dropped", refs, chat_type, "text")
+            return TelegramUpdateDecision(update_id, "dropped", chat_type, "text")
+        if not self.forwarding_rate_limiter.allow(f"{TELEGRAM_SENDER_ID}:{TELEGRAM_ROOM_ID}"):
+            self._audit_bridge(
+                NormalizedAuditEventType.BRIDGE_MESSAGE_IGNORED,
+                inbound=inbound,
+                metadata={
+                    "direction": "telegram_to_meshcore",
+                    "source_transport": TELEGRAM_TRANSPORT,
+                    "destination_transport": MESHCORE_TRANSPORT_NAME,
+                    "reason": "rate_limited",
+                    "size_bytes": size_bytes,
+                    "truncated": rendered.truncated,
+                },
+                causation_event_id=received_event_id,
+            )
+            self.store.create_bridge_record(
+                correlation_id=inbound.message.correlation_id if inbound.message else "",
+                destination_transport=MESHCORE_TRANSPORT_NAME,
+                destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
+                content=rendered.text,
+                size_bytes=size_bytes,
+                status="dropped",
+            )
+            self._audit("telegram.update.ignored", "rate_limited", refs, chat_type, "text")
+            await self._send_forward_confirmation(
+                chat_id=self.config.allowed_private_chat_id,
+                text="Rate limit.",
+            )
+            return TelegramUpdateDecision(update_id, "rate_limited", chat_type, "text")
+        if self.meshcore_transport is None:
+            await self._record_forward_failure(
+                inbound=inbound,
+                rendered=rendered,
+                size_bytes=size_bytes,
+                reason="transport_unavailable",
+                causation_event_id=received_event_id,
+            )
+            self._audit("telegram.update.ignored", "failed", refs, chat_type, "text")
+            await self._send_forward_confirmation(
+                chat_id=self.config.allowed_private_chat_id,
+                text=MESHCORE_FORWARD_FAILURE_TEXT,
+            )
+            return TelegramUpdateDecision(update_id, "failed", chat_type, "text")
+        outbound = OutboundMessage(
+            destination=_meshcore_room(self.config.meshcore_channel_index).room_id,
+            channel_index=self.config.meshcore_channel_index,
+            text=rendered.text,
+            reply_to=inbound.message_id,
+            reply_target=_meshcore_room(self.config.meshcore_channel_index),
+            metadata={"source_transport": TELEGRAM_TRANSPORT},
+        )
+        try:
+            await self.meshcore_transport.send(outbound)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("Telegram to MeshCore forward failed reason=transport_error")
+            await self._record_forward_failure(
+                inbound=inbound,
+                rendered=rendered,
+                size_bytes=size_bytes,
+                reason="transport_error",
+                causation_event_id=received_event_id,
+            )
+            self._audit("telegram.update.ignored", "failed", refs, chat_type, "text")
+            await self._send_forward_confirmation(
+                chat_id=self.config.allowed_private_chat_id,
+                text=MESHCORE_FORWARD_FAILURE_TEXT,
+            )
+            return TelegramUpdateDecision(update_id, "failed", chat_type, "text")
+        forwarded_event_id = self._audit_bridge(
+            NormalizedAuditEventType.BRIDGE_MESSAGE_FORWARDED,
+            inbound=inbound,
+            metadata={
+                "direction": "telegram_to_meshcore",
+                "source_transport": TELEGRAM_TRANSPORT,
+                "destination_transport": MESHCORE_TRANSPORT_NAME,
+                "result": "accepted_by_meshcore_transport",
+                "size_bytes": size_bytes,
+                "truncated": rendered.truncated,
+            },
+            causation_event_id=received_event_id,
+        )
+        record = self.store.create_bridge_record(
+            correlation_id=inbound.message.correlation_id if inbound.message else "",
+            destination_transport=MESHCORE_TRANSPORT_NAME,
+            destination_room_id=outbound.reply_target.room_id if outbound.reply_target else "",
+            content=rendered.text,
+            size_bytes=size_bytes,
+            status="accepted_by_meshcore_transport",
+        )
+        logger.info(
+            "Telegram message forwarded to MeshCore channel=%s status=%s",
+            self.config.meshcore_channel_index,
+            record.status,
+        )
+        self._audit("telegram.update.accepted", "forwarded", refs, chat_type, "text")
+        await self._send_forward_confirmation(
+            chat_id=self.config.allowed_private_chat_id,
+            text=MESHCORE_FORWARD_SUCCESS_TEXT,
+        )
+        if forwarded_event_id is not None:
+            logger.info("Telegram bridge event recorded status=accepted_by_meshcore_transport")
+        return TelegramUpdateDecision(update_id, "forwarded", chat_type, "text")
 
     async def _send_command_response(
         self,
@@ -271,6 +473,66 @@ class TelegramFoundationService:
             sender=telegram_sender(),
             message=message_identity,
         )
+
+    async def _record_forward_failure(
+        self,
+        *,
+        inbound: InboundMessage,
+        rendered: ForwardRenderResult,
+        size_bytes: int,
+        reason: str,
+        causation_event_id: str | None,
+    ) -> None:
+        self._audit_bridge(
+            NormalizedAuditEventType.BRIDGE_MESSAGE_FAILED,
+            inbound=inbound,
+            metadata={
+                "direction": "telegram_to_meshcore",
+                "source_transport": TELEGRAM_TRANSPORT,
+                "destination_transport": MESHCORE_TRANSPORT_NAME,
+                "result": "failed",
+                "reason": reason,
+                "size_bytes": size_bytes,
+                "truncated": rendered.truncated,
+            },
+            causation_event_id=causation_event_id,
+        )
+        self.store.create_bridge_record(
+            correlation_id=inbound.message.correlation_id if inbound.message else "",
+            destination_transport=MESHCORE_TRANSPORT_NAME,
+            destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
+            content=rendered.text or "",
+            size_bytes=size_bytes,
+            status="failed",
+        )
+
+    def _audit_bridge(
+        self,
+        event_type: NormalizedAuditEventType,
+        *,
+        inbound: InboundMessage,
+        metadata: dict[str, object],
+        causation_event_id: str | None = None,
+    ) -> str | None:
+        return self.store.audit_bridge_event(
+            repository=self.normalized_audit,
+            event_type=event_type,
+            message=inbound,
+            correlation_id=inbound.message.correlation_id if inbound.message else "",
+            metadata=metadata,
+            causation_event_id=causation_event_id,
+        )
+
+    async def _send_forward_confirmation(self, *, chat_id: str, text: str) -> None:
+        try:
+            await self.client.send_message(chat_id=chat_id, text=text)
+        except TelegramRateLimitError as exc:
+            await self._sleep_or_stop(min(exc.retry_after, self.backoff_max_seconds))
+            logger.warning("Telegram forward confirmation failed reason=rate_limited")
+        except TelegramConflictError:
+            logger.warning("Telegram forward confirmation failed reason=consumer_conflict")
+        except (TelegramApiError, httpx.HTTPError, TimeoutError, OSError):
+            logger.warning("Telegram forward confirmation failed reason=transport_error")
 
     def _safe_command_text(self, text: str) -> str:
         stripped = text.strip()
@@ -367,3 +629,60 @@ def _trim_telegram_response(text: str) -> str:
     if len(normalized) <= TELEGRAM_RESPONSE_MAX_CHARS:
         return normalized
     return normalized[: TELEGRAM_RESPONSE_MAX_CHARS - 14].rstrip() + "\n... truncado"
+
+
+@dataclass(frozen=True, slots=True)
+class ForwardRenderResult:
+    text: str | None
+    truncated: bool
+
+
+def render_meshcore_forward_message(
+    *,
+    text: str,
+    prefix: str,
+    max_bytes: int,
+) -> ForwardRenderResult:
+    normalized_text = " ".join(text.strip().split())
+    if not normalized_text:
+        return ForwardRenderResult(text=None, truncated=False)
+    candidate = prefix + normalized_text
+    if len(candidate.encode("utf-8")) <= max_bytes:
+        return ForwardRenderResult(text=candidate, truncated=False)
+    truncated = _truncate_utf8_words(candidate, max_bytes)
+    if truncated is None:
+        return ForwardRenderResult(text=None, truncated=True)
+    return ForwardRenderResult(text=truncated, truncated=True)
+
+
+def _truncate_utf8_words(value: str, max_bytes: int) -> str | None:
+    ellipsis = "..."
+    ellipsis_bytes = len(ellipsis.encode("utf-8"))
+    if max_bytes < ellipsis_bytes + 1:
+        return None
+    budget = max_bytes - ellipsis_bytes
+    words = value.split(" ")
+    output = ""
+    for word in words:
+        candidate = word if not output else f"{output} {word}"
+        if len(candidate.encode("utf-8")) <= budget:
+            output = candidate
+            continue
+        break
+    if not output:
+        output = _truncate_utf8_boundary(value, budget).rstrip()
+    output = output.rstrip()
+    if not output:
+        return None
+    return output + ellipsis
+
+
+def _truncate_utf8_boundary(value: str, max_bytes: int) -> str:
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def _meshcore_room(channel_index: int) -> RoomRef:
+    return RoomRef.channel(transport=MESHCORE_TRANSPORT_NAME, channel_index=channel_index)

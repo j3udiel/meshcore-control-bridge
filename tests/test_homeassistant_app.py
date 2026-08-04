@@ -58,7 +58,8 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
                     "forward_telegram_to_meshcore": True,
                     "command_prefix": "!",
                     "max_meshcore_message_length": 180,
-                    "message_prefix": "",
+                    "message_prefix": "TG: ",
+                    "forwarding_rate_limit": {"messages": 5, "window_seconds": 60},
                 },
                 "rate_limit": {"commands": 5, "window_seconds": 60},
                 "log_level": "info",
@@ -89,6 +90,8 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.telegram.enabled is False
     assert config.telegram.bot_token_file == "/data/telegram.bot_token"
     assert config.telegram.meshcore_channel_index == 1
+    assert config.telegram.message_prefix == "TG: "
+    assert config.telegram.forwarding_rate_limit.commands == 5
 
 
 def test_homeassistant_app_rejects_public_channel_zero() -> None:
@@ -122,6 +125,31 @@ def test_homeassistant_app_telegram_enabled_requires_private_chat_and_user() -> 
                 "channel_index": 1,
                 "allow_unidentified_readonly_testing": True,
                 "telegram": {"enabled": True},
+            }
+        )
+
+
+def test_homeassistant_app_telegram_defaults_match_yaml_defaults() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "allow_unidentified_readonly_testing": True,
+            "telegram": {},
+        }
+    )
+
+    assert options.telegram.message_prefix == "TG: "
+    assert options.telegram.forwarding_rate_limit.commands == 5
+    assert options.telegram.forwarding_rate_limit.window_seconds == 60
+
+
+def test_homeassistant_app_telegram_rejects_invalid_forwarding_prefix() -> None:
+    with pytest.raises(ValueError, match="control characters"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "allow_unidentified_readonly_testing": True,
+                "telegram": {"message_prefix": "TG:\t"},
             }
         )
 

@@ -13,7 +13,8 @@ from meshcore_control.adapters.homeassistant import HomeAssistantStatus
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
 from meshcore_control.auth.roles import Role
 from meshcore_control.commands.router import CommandRouter
-from meshcore_control.config import AppConfig, TelegramConfig, WeatherStatusConfig
+from meshcore_control.config import AppConfig, RateLimitConfig, TelegramConfig, WeatherStatusConfig
+from meshcore_control.models import OutboundMessage
 from meshcore_control.plugins import build_registry
 from meshcore_control.storage.audit_flow import AuditFlow
 from meshcore_control.storage.database import connect_database
@@ -30,7 +31,10 @@ from meshcore_control.telegram.client import (
     TelegramRateLimitError,
 )
 from meshcore_control.telegram.identity import TELEGRAM_ROOM_ID, TELEGRAM_SENDER_ID
-from meshcore_control.telegram.service import TelegramFoundationService
+from meshcore_control.telegram.service import (
+    TelegramFoundationService,
+    render_meshcore_forward_message,
+)
 from meshcore_control.telegram.store import TelegramStore
 from meshcore_control.telegram.token import (
     TelegramToken,
@@ -80,6 +84,20 @@ class FakeTelegramClient:
         self.send_message_calls.append({"chat_id": chat_id, "text": text})
 
 
+@dataclass
+class FakeMeshCoreTransport:
+    sent: list[OutboundMessage] = field(default_factory=list)
+    send_error: Exception | None = None
+
+    async def receive(self):
+        raise NotImplementedError
+
+    async def send(self, message: OutboundMessage) -> None:
+        if self.send_error is not None:
+            raise self.send_error
+        self.sent.append(message)
+
+
 @dataclass(slots=True)
 class FakeHA:
     available: bool = True
@@ -105,6 +123,7 @@ def _config(**overrides: object) -> TelegramConfig:
         "allowed_private_chat_id": "1001",
         "allowed_user_id": "2002",
         "meshcore_channel_index": 1,
+        "message_prefix": "TG: ",
     }
     data.update(overrides)
     return TelegramConfig(**data)
@@ -144,6 +163,8 @@ def _command_service(
     ha: FakeHA | None = None,
     weather_status: WeatherStatusConfig | None = None,
     authorized: bool = True,
+    meshcore_transport: FakeMeshCoreTransport | None = None,
+    config: TelegramConfig | None = None,
 ) -> tuple[TelegramFoundationService, FakeTelegramClient, sqlite3.Connection]:
     connection = connect_database(str(tmp_path / "audit.db"))
     registry = build_registry()
@@ -170,11 +191,12 @@ def _command_service(
         if authorized
         else {}
     )
-    config = AppConfig(
+    telegram_config = config or _config()
+    app_config = AppConfig(
         weather_status=weather_status or WeatherStatusConfig(),
-        telegram=_config(),
+        telegram=telegram_config,
     )
-    services: dict[str, object] = {"registry": registry, "config": config}
+    services: dict[str, object] = {"registry": registry, "config": app_config}
     if ha is not None:
         services["homeassistant"] = ha
     router = CommandRouter(
@@ -197,11 +219,13 @@ def _command_service(
     )
     fake_client = client or FakeTelegramClient()
     service = TelegramFoundationService(
-        config=_config(),
+        config=telegram_config,
         client=fake_client,
         store=TelegramStore(connection, audit_key=AuditKey(b"a" * 32)),
         router=router,
         audit_flow=audit_flow,
+        meshcore_transport=meshcore_transport,
+        normalized_audit=audit_flow.normalized,
         backoff_max_seconds=1,
         sleep=_noop_sleep,
     )
@@ -318,11 +342,16 @@ async def test_get_updates_uses_allowed_updates_and_offset(tmp_path: Path) -> No
     store.mark_activated()
     store.persist_last_update_id(10)
     client = FakeTelegramClient(updates=[[_message(11)]])
-    service = TelegramFoundationService(config=_config(), client=client, store=store)
+    service = TelegramFoundationService(
+        config=_config(),
+        client=client,
+        store=store,
+        meshcore_transport=FakeMeshCoreTransport(),
+    )
 
     decisions = await service.poll_once()
 
-    assert decisions[0].reason == "foundation_only"
+    assert decisions[0].reason == "forwarded"
     assert client.get_updates_calls == [
         {"offset": 11, "timeout": 50, "allowed_updates": ("message",)}
     ]
@@ -421,13 +450,261 @@ async def test_telegram_unknown_command_responds_in_telegram(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_telegram_normal_text_stays_foundation_only_without_response(tmp_path: Path) -> None:
-    service, client, _connection = _command_service(tmp_path)
+async def test_telegram_normal_text_forwards_to_meshcore(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, client, connection = _command_service(tmp_path, meshcore_transport=meshcore)
 
     decision = await service.process_update(_message(107, text="hello"))
 
-    assert decision.reason == "foundation_only"
+    assert decision.reason == "forwarded"
+    assert client.send_message_calls == [{"chat_id": "1001", "text": "Enviado a MeshCore."}]
+    assert len(meshcore.sent) == 1
+    assert meshcore.sent[0].channel_index == 1
+    assert meshcore.sent[0].text == "TG: hello"
+    assert connection.execute("SELECT status FROM telegram_bridge_pending").fetchone()[0] == (
+        "accepted_by_meshcore_transport"
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_applies_prefix_and_channel(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, _client, _connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        config=_config(message_prefix="TG: ", meshcore_channel_index=7),
+    )
+
+    await service.process_update(_message(118, text="Voy en 10 minutos"))
+
+    assert meshcore.sent[0].channel_index == 7
+    assert meshcore.sent[0].text == "TG: Voy en 10 minutos"
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_can_disable_prefix(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, _client, _connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        config=_config(message_prefix=""),
+    )
+
+    await service.process_update(_message(119, text="sin prefijo"))
+
+    assert meshcore.sent[0].text == "sin prefijo"
+
+
+@pytest.mark.asyncio
+async def test_telegram_commands_do_not_forward_to_meshcore(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, client, _connection = _command_service(tmp_path, meshcore_transport=meshcore)
+
+    await service.process_update(_message(120, text="!ping"))
+    await service.process_update(_message(121, text="!estado"))
+
+    assert client.send_message_calls[0] == {"chat_id": "1001", "text": "pong"}
+    assert meshcore.sent == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_disabled_does_not_send(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, client, _connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        config=_config(forward_telegram_to_meshcore=False),
+    )
+
+    decision = await service.process_update(_message(122, text="hello"))
+
+    assert decision.reason == "forward_disabled"
+    assert meshcore.sent == []
     assert client.send_message_calls == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_rate_limit(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, client, _connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        config=_config(forwarding_rate_limit=RateLimitConfig(commands=1, window_seconds=60)),
+    )
+
+    first = await service.process_update(_message(123, text="one"))
+    second = await service.process_update(_message(124, text="two"))
+
+    assert first.reason == "forwarded"
+    assert second.reason == "rate_limited"
+    assert [message.text for message in meshcore.sent] == ["TG: one"]
+    assert client.send_message_calls[-1] == {"chat_id": "1001", "text": "Rate limit."}
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_transport_error(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport(send_error=TimeoutError("meshcore timeout"))
+    service, client, connection = _command_service(tmp_path, meshcore_transport=meshcore)
+
+    decision = await service.process_update(_message(125, text="hello"))
+
+    assert decision.reason == "failed"
+    assert client.send_message_calls == [
+        {"chat_id": "1001", "text": "No se pudo enviar a MeshCore."}
+    ]
+    assert connection.execute("SELECT status FROM telegram_bridge_pending").fetchone()[0] == (
+        "failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_confirmation_failure_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    meshcore = FakeMeshCoreTransport()
+    client = FakeTelegramClient(send_error=TelegramConflictError("conflict"))
+    service, _client, connection = _command_service(
+        tmp_path,
+        client=client,
+        meshcore_transport=meshcore,
+    )
+
+    decision = await service.process_update(_message(126, text="hello"))
+
+    assert decision.reason == "forwarded"
+    assert [message.text for message in meshcore.sent] == ["TG: hello"]
+    assert connection.execute("SELECT status FROM telegram_bridge_pending").fetchone()[0] == (
+        "accepted_by_meshcore_transport"
+    )
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_does_not_hold_sqlite_transaction_during_meshcore_send(
+    tmp_path: Path,
+) -> None:
+    connection = connect_database(str(tmp_path / "audit.db"))
+
+    class InspectingMeshCoreTransport(FakeMeshCoreTransport):
+        async def send(self, message: OutboundMessage) -> None:
+            assert not connection.in_transaction
+            await super().send(message)
+
+    registry = build_registry()
+    audit_flow = AuditFlow(
+        connection=connection,
+        legacy=AuditRepository(connection),
+        normalized=NormalizedAuditRepository(
+            connection,
+            NormalizedAuditSettings(
+                enabled=True,
+                audit_key=AuditKey(key=b"t" * AUDIT_KEY_MIN_BYTES, key_id="telegram-key"),
+            ),
+        ),
+    )
+    service = TelegramFoundationService(
+        config=_config(),
+        client=FakeTelegramClient(),
+        store=TelegramStore(connection, audit_key=AuditKey(b"a" * 32)),
+        router=CommandRouter(
+            registry=registry,
+            authorizer=Authorizer(
+                {
+                    TELEGRAM_SENDER_ID: AuthorizedUser(
+                        TELEGRAM_SENDER_ID,
+                        "telegram-authorized-user",
+                        Role.readonly,
+                    )
+                },
+                room_policies={
+                    TELEGRAM_ROOM_ID: RoomPolicy(
+                        room_id=TELEGRAM_ROOM_ID,
+                        enabled=True,
+                        minimum_role=Role.readonly,
+                        allow_commands=True,
+                    )
+                },
+            ),
+            audit=AuditRepository(connection),
+            audit_flow=audit_flow,
+            services={"registry": registry, "config": AppConfig()},
+            prefix="!",
+        ),
+        audit_flow=audit_flow,
+        meshcore_transport=InspectingMeshCoreTransport(),
+        normalized_audit=audit_flow.normalized,
+    )
+
+    await service.process_update(_message(127, text="hello"))
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_records_normalized_bridge_events(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, _client, connection = _command_service(tmp_path, meshcore_transport=meshcore)
+
+    await service.process_update(_message(128, text="private forwarded text"))
+
+    rows = connection.execute(
+        "SELECT event_id, event_type, correlation_id, causation_event_id, metadata_json "
+        "FROM normalized_audit_events ORDER BY id"
+    ).fetchall()
+    bridge_rows = [row for row in rows if row["event_type"].startswith("bridge.message.")]
+    assert [row["event_type"] for row in bridge_rows] == [
+        "bridge.message.received",
+        "bridge.message.forwarded",
+    ]
+    assert bridge_rows[0]["causation_event_id"] is None
+    assert bridge_rows[1]["causation_event_id"] == bridge_rows[0]["event_id"]
+    assert {row["correlation_id"] for row in bridge_rows} == {
+        bridge_rows[0]["correlation_id"]
+    }
+    metadata = json.loads(bridge_rows[1]["metadata_json"])
+    assert metadata["result"] == "accepted_by_meshcore_transport"
+    assert metadata["direction"] == "telegram_to_meshcore"
+    database_text = (tmp_path / "audit.db").read_bytes().decode("utf-8", errors="ignore")
+    for forbidden in ("private forwarded text", "1001", "2002", "3003", VALID_TOKEN):
+        assert forbidden not in database_text
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_persists_pending_record_without_raw_content(
+    tmp_path: Path,
+) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, _client, connection = _command_service(tmp_path, meshcore_transport=meshcore)
+
+    await service.process_update(_message(129, text="private content"))
+
+    row = connection.execute(
+        "SELECT bridge_message_id, destination_transport, destination_room_id, "
+        "content_ref_hash, size_bytes, status FROM telegram_bridge_pending"
+    ).fetchone()
+    assert row["bridge_message_id"].startswith("bridge:")
+    assert row["destination_transport"] == "homeassistant-meshcore"
+    assert row["destination_room_id"] == "homeassistant-meshcore:channel:1"
+    assert row["content_ref_hash"].startswith("hmac-sha256:v1:")
+    assert row["size_bytes"] == len(b"TG: private content")
+    assert row["status"] == "accepted_by_meshcore_transport"
+    database_text = (tmp_path / "audit.db").read_bytes().decode("utf-8", errors="ignore")
+    assert "private content" not in database_text
+
+
+def test_render_meshcore_forward_message_truncates_utf8_on_boundary() -> None:
+    result = render_meshcore_forward_message(text="áéíóú café largo", prefix="TG: ", max_bytes=16)
+
+    assert result.text is not None
+    assert result.truncated is True
+    assert len(result.text.encode("utf-8")) <= 16
+    result.text.encode("utf-8").decode("utf-8")
+    assert result.text.endswith("...")
+
+
+def test_render_meshcore_forward_message_empty_after_strip() -> None:
+    assert render_meshcore_forward_message(text="   ", prefix="TG: ", max_bytes=10).text is None
+
+
+def test_render_meshcore_forward_message_drops_empty_after_truncation() -> None:
+    assert render_meshcore_forward_message(text="abc", prefix="", max_bytes=2).text is None
 
 
 @pytest.mark.asyncio
@@ -538,6 +815,7 @@ async def test_duplicate_update_is_ignored_after_restart(tmp_path: Path) -> None
         config=_config(),
         client=FakeTelegramClient(),
         store=first_store,
+        meshcore_transport=FakeMeshCoreTransport(),
     )
 
     first = await service.process_update(_message(20))
@@ -549,10 +827,11 @@ async def test_duplicate_update_is_ignored_after_restart(tmp_path: Path) -> None
         config=_config(),
         client=FakeTelegramClient(),
         store=restarted_store,
+        meshcore_transport=FakeMeshCoreTransport(),
     )
     duplicate = await restarted_service.process_update(_message(20))
 
-    assert first.reason == "foundation_only"
+    assert first.reason == "forwarded"
     assert duplicate.reason == "duplicate"
 
 

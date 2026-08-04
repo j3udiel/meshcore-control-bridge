@@ -73,7 +73,8 @@ def test_homeassistant_app_config_is_restricted() -> None:
         "forward_telegram_to_meshcore": True,
         "command_prefix": "!",
         "max_meshcore_message_length": 180,
-        "message_prefix": "",
+        "message_prefix": "TG: ",
+        "forwarding_rate_limit": {"messages": 5, "window_seconds": 60},
     }
     assert config["schema"]["weather_status"] == {
         "temperature_entity": "str?",
@@ -83,6 +84,10 @@ def test_homeassistant_app_config_is_restricted() -> None:
     assert config["schema"]["telegram"]["bot_token_import"] == "password?"
     assert config["schema"]["telegram"]["meshcore_channel_index"] == "int(1,255)"
     assert config["schema"]["telegram"]["max_meshcore_message_length"] == "int(1,1000)"
+    assert config["schema"]["telegram"]["forwarding_rate_limit"] == {
+        "messages": "int(1,100)",
+        "window_seconds": "int(1,3600)",
+    }
     assert config["options"]["allow_unidentified_readonly_testing"] is True
     assert config["options"]["log_level"] == "debug"
     assert "privileged" not in config

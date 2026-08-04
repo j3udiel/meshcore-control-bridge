@@ -133,3 +133,35 @@ telegram:
 
     with pytest.raises(ValueError, match="telegram.meshcore_channel_index"):
         load_config(str(config_file))
+
+
+def test_telegram_forwarding_rate_limit_loads_messages_key(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  forwarding_rate_limit:
+    messages: 2
+    window_seconds: 30
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.telegram.forwarding_rate_limit.commands == 2
+    assert config.telegram.forwarding_rate_limit.window_seconds == 30
+
+
+def test_telegram_message_prefix_rejects_controls_and_length(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  message_prefix: "prefix with too many characters"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="16 characters"):
+        load_config(str(config_file))

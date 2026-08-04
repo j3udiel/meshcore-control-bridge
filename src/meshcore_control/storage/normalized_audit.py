@@ -50,6 +50,10 @@ class NormalizedAuditEventType(StrEnum):
     COMMAND_EXECUTION = "command.execution"
     RESPONSE_SENT = "response.sent"
     RESPONSE_FAILED = "response.failed"
+    BRIDGE_MESSAGE_RECEIVED = "bridge.message.received"
+    BRIDGE_MESSAGE_FORWARDED = "bridge.message.forwarded"
+    BRIDGE_MESSAGE_IGNORED = "bridge.message.ignored"
+    BRIDGE_MESSAGE_FAILED = "bridge.message.failed"
 
 
 METADATA_ALLOWLIST: dict[NormalizedAuditEventType, frozenset[str]] = {
@@ -95,6 +99,45 @@ METADATA_ALLOWLIST: dict[NormalizedAuditEventType, frozenset[str]] = {
     NormalizedAuditEventType.RESPONSE_FAILED: frozenset(
         {
             "transport_service",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_MESSAGE_RECEIVED: frozenset(
+        {
+            "direction",
+            "source_transport",
+            "destination_transport",
+            "size_bytes",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_MESSAGE_FORWARDED: frozenset(
+        {
+            "direction",
+            "source_transport",
+            "destination_transport",
+            "result",
+            "size_bytes",
+            "truncated",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_MESSAGE_IGNORED: frozenset(
+        {
+            "direction",
+            "source_transport",
+            "destination_transport",
+            "reason",
+            "size_bytes",
+            "truncated",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_MESSAGE_FAILED: frozenset(
+        {
+            "direction",
+            "source_transport",
+            "destination_transport",
+            "result",
+            "reason",
+            "size_bytes",
+            "truncated",
         }
     ),
 }

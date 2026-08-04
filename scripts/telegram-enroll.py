@@ -12,7 +12,7 @@ import httpx
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Safely discover Telegram private chat_id and user_id for PR23 testing."
+        description="Safely discover Telegram private chat_id and user_id for local testing."
     )
     parser.add_argument("--timeout", type=int, default=60, help="seconds to wait")
     parser.add_argument(

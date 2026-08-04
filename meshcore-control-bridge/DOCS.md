@@ -58,7 +58,10 @@ telegram:
   forward_telegram_to_meshcore: true
   command_prefix: "!"
   max_meshcore_message_length: 180
-  message_prefix: ""
+  message_prefix: "TG: "
+  forwarding_rate_limit:
+    messages: 5
+    window_seconds: 60
 rate_limit:
   commands: 5
   window_seconds: 60
@@ -206,10 +209,12 @@ existing readonly commands `!ping`, `!help`, `!estado`, `!estado ha`, and
 `!exterior` through the same command router used by MeshCore. Replies are sent
 back to Telegram with plain-text `sendMessage`.
 
-Normal Telegram text is still `foundation_only` and is not forwarded to
-MeshCore. This release does not include Telegram to MeshCore forwarding,
-MeshCore to Telegram forwarding, bidirectional bridging, groups, media,
-webhooks, write commands, or USB release work.
+The current development branch can forward authorized normal Telegram text to
+the configured MeshCore channel through the existing Home Assistant MeshCore
+transport. Telegram commands and command responses are not forwarded to
+MeshCore. This branch does not include MeshCore to Telegram forwarding,
+bidirectional bridging, groups, media, webhooks, write commands, or USB release
+work.
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with
@@ -219,8 +224,8 @@ events without raw message text, raw chat IDs, raw user IDs, or token values.
 
 ## Telegram Foundation Local Smoke Test
 
-This flow tests PR23 locally without publishing a release and without replacing
-the stable App image.
+This flow tests a Telegram development branch locally without publishing a
+release and without replacing the stable App image.
 
 1. Create a temporary bot with BotFather.
 2. Do not paste the token into shell commands, shell history, logs, issues, or
@@ -229,8 +234,8 @@ the stable App image.
    `curl`, download the enrollment helper from the PR branch and run it:
 
    ```sh
-   curl -fsSLo /tmp/telegram-enroll.sh \
-     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-readonly-commands/scripts/telegram-enroll.sh
+     curl -fsSLo /tmp/telegram-enroll.sh \
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-to-meshcore-forwarding/scripts/telegram-enroll.sh
    bash /tmp/telegram-enroll.sh --timeout 60
    ```
 
@@ -252,13 +257,14 @@ the stable App image.
 
    ```sh
    curl -fsSLo /tmp/prepare-local-telegram-pr23.sh \
-     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-readonly-commands/scripts/prepare-local-telegram-pr23.sh
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-to-meshcore-forwarding/scripts/prepare-local-telegram-pr23.sh
    bash /tmp/prepare-local-telegram-pr23.sh
    ```
 
    The helper uses only shell tools available in core-ssh. It keeps the Git
-   checkout in `/addons/.meshcore-control-bridge-pr23-source` and generates a
-   self-contained local App at `/addons/meshcore-control-bridge-pr23`.
+   checkout in `/addons/.meshcore-control-bridge-telegram-forwarding-source`
+   and generates a self-contained local App at
+   `/addons/meshcore-control-bridge-telegram-forwarding`.
 
    The generated App root contains `config.yaml`, `Dockerfile`, `run.sh`,
    `pyproject.toml`, `README.md`, `src/`, translations, and the App
@@ -274,9 +280,9 @@ the stable App image.
    ```
 
 8. In Home Assistant, reload Local apps.
-9. Install `MeshCore Control Bridge PR23`. It uses the separate slug
-   `meshcore_control_bridge_pr23`.
-10. Configure only the PR23 App:
+9. Install `MeshCore Control Bridge Telegram Forwarding`. It uses the separate
+   slug `meshcore_control_bridge_telegram_forwarding`.
+10. Configure only the test App:
 
     ```yaml
     telegram:
@@ -290,14 +296,17 @@ the stable App image.
       forward_telegram_to_meshcore: true
       command_prefix: "!"
       max_meshcore_message_length: 180
-      message_prefix: ""
+      message_prefix: "TG: "
+      forwarding_rate_limit:
+        messages: 5
+        window_seconds: 60
     ```
 
-11. Start the PR23 App and inspect logs. Expected safe signals include Telegram
+11. Start the test App and inspect logs. Expected safe signals include Telegram
     first activation, pending update discard, polling startup, and bridge ready.
 12. Clear `telegram.bot_token_import` in the App UI after the token file has
     been imported.
-13. Restart the PR23 App.
+13. Restart the test App.
 14. Send another private text message to the bot.
 15. Confirm that polling continues and pending updates are not discarded again
     on normal restart.
@@ -312,17 +321,27 @@ authorized private Telegram chat:
 ```
 
 Expected responses are the same short command responses used by MeshCore, sent
-only to the Telegram chat. Normal Telegram text still stays local to the
-Telegram foundation and is not forwarded to MeshCore.
+only to the Telegram chat. Then send normal text such as:
+
+```text
+Voy en 10 minutos
+```
+
+Expected behavior for the forwarding branch:
+
+- Telegram receives `Enviado a MeshCore.`
+- MeshCore receives `TG: Voy en 10 minutos` on the configured channel.
+- Telegram commands such as `!ping` are not sent to MeshCore.
+- MeshCore to Telegram forwarding is still not implemented.
 
 After testing:
 
-1. Stop and uninstall the PR23 App from Home Assistant.
+1. Stop and uninstall the test App from Home Assistant.
 2. Run:
 
    ```sh
    curl -fsSLo /tmp/remove-local-telegram-pr23.sh \
-     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-foundation/scripts/remove-local-telegram-pr23.sh
+     https://raw.githubusercontent.com/j3udiel/meshcore-control-bridge/feat/telegram-to-meshcore-forwarding/scripts/remove-local-telegram-pr23.sh
    bash /tmp/remove-local-telegram-pr23.sh
    ```
 
