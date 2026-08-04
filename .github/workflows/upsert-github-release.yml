@@ -1,0 +1,116 @@
+name: Upsert GitHub Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to publish as a GitHub Release, for example v0.1.9
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: read
+
+env:
+  IMAGE_NAME: meshcore-control-bridge
+
+jobs:
+  release:
+    name: Upsert GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tooling
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag and version
+        id: version
+        env:
+          TAG_NAME: ${{ inputs.tag }}
+        run: |
+          if [[ ! "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9]+)*$ ]]; then
+            echo "Invalid tag format: ${TAG_NAME}" >&2
+            exit 1
+          fi
+
+          git fetch --force --tags origin
+          git fetch --no-tags origin main
+
+          tag_type="$(git cat-file -t "${TAG_NAME}")"
+          if [[ "${tag_type}" != "tag" ]]; then
+            echo "Tag ${TAG_NAME} must be an annotated tag" >&2
+            exit 1
+          fi
+
+          tag_commit="$(git rev-list -n 1 "${TAG_NAME}")"
+          main_commit="$(git rev-parse origin/main)"
+          if ! git merge-base --is-ancestor "${tag_commit}" "${main_commit}"; then
+            echo "Tag ${TAG_NAME} does not point to a commit reachable from main" >&2
+            exit 1
+          fi
+
+          version="${TAG_NAME#v}"
+          git show "${tag_commit}:pyproject.toml" | grep -q "^version = \"${version}\"$"
+          git show "${tag_commit}:src/meshcore_control/__init__.py" | grep -q "^__version__ = \"${version}\"$"
+          git show "${tag_commit}:meshcore-control-bridge/config.yaml" | grep -q "^version: \"${version}\"$"
+          git show "${tag_commit}:meshcore-control-bridge/Dockerfile" | grep -q "^ARG BUILD_VERSION=${version}$"
+          git show "${tag_commit}:CHANGELOG.md" > /tmp/tag-CHANGELOG.md
+
+          echo "commit=${tag_commit}" >> "${GITHUB_OUTPUT}"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate published image
+        id: image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          inspect="$(docker buildx imagetools inspect "${IMAGE}:${VERSION}")"
+          digest="$(awk '/^Digest:/ {print $2; exit}' <<< "${inspect}")"
+          if [[ -z "${digest}" ]]; then
+            echo "Could not resolve published image digest" >&2
+            exit 1
+          fi
+          grep -q 'Platform:    linux/amd64' <<< "${inspect}"
+          grep -q 'Platform:    linux/arm64' <<< "${inspect}"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build release notes
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          IMAGE: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 scripts/build_release_notes.py \
+            --version "${VERSION}" \
+            --image "${IMAGE}" \
+            --digest "${DIGEST}" \
+            --changelog /tmp/tag-CHANGELOG.md \
+            --output /tmp/release-notes.md
+
+      - name: Resolve release type
+        id: release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create or update release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG_NAME: ${{ inputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
+        run: |
+          python3 scripts/upsert_github_release.py \
+            --tag "${TAG_NAME}" \
+            --title "MeshCore Control Bridge ${VERSION}" \
+            --notes-file /tmp/release-notes.md \
+            --prerelease "${PRERELEASE}"
