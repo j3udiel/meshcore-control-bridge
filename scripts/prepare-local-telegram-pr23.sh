@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ADDONS_ROOT="${MCB_PR23_TEST_ADDONS_ROOT:-/addons}"
-TARGET_DIR="${ADDONS_ROOT%/}/meshcore-control-bridge-pr23"
-SOURCE_DIR="${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-source"
-REPO_URL="${MCB_PR23_TEST_REPO_URL:-https://github.com/j3udiel/meshcore-control-bridge.git}"
-BRANCH="feat/telegram-readonly-commands"
+ADDONS_ROOT="${MCB_TELEGRAM_TEST_ADDONS_ROOT:-${MCB_PR23_TEST_ADDONS_ROOT:-/addons}}"
+TARGET_DIR="${ADDONS_ROOT%/}/meshcore-control-bridge-telegram-forwarding"
+SOURCE_DIR="${ADDONS_ROOT%/}/.meshcore-control-bridge-telegram-forwarding-source"
+REPO_URL="${MCB_TELEGRAM_TEST_REPO_URL:-${MCB_PR23_TEST_REPO_URL:-https://github.com/j3udiel/meshcore-control-bridge.git}}"
+BRANCH="${MCB_TELEGRAM_TEST_BRANCH:-feat/telegram-to-meshcore-forwarding}"
 EXPECTED_HEAD="${1:-}"
 APP_CONFIG="${TARGET_DIR}/config.yaml"
 
@@ -14,8 +14,8 @@ if [[ "$(id -u)" -eq 0 ]]; then
 fi
 
 case "${TARGET_DIR}" in
-  /addons/meshcore-control-bridge-pr23) ;;
-  "${MCB_PR23_TEST_ADDONS_ROOT:-__unset__}/meshcore-control-bridge-pr23") ;;
+  /addons/meshcore-control-bridge-telegram-forwarding) ;;
+  "${MCB_TELEGRAM_TEST_ADDONS_ROOT:-${MCB_PR23_TEST_ADDONS_ROOT:-__unset__}}/meshcore-control-bridge-telegram-forwarding") ;;
   *)
     printf '%s\n' "refusing unexpected target directory: ${TARGET_DIR}" >&2
     exit 1
@@ -60,7 +60,7 @@ fi
 
 mkdir -p "${TARGET_DIR}"
 
-tmp_target="$(mktemp -d "${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-build.XXXXXX")"
+tmp_target="$(mktemp -d "${ADDONS_ROOT%/}/.meshcore-control-bridge-telegram-forwarding-build.XXXXXX")"
 cp -R "${SOURCE_DIR}/meshcore-control-bridge/." "${tmp_target}/"
 cp "${SOURCE_DIR}/pyproject.toml" "${tmp_target}/pyproject.toml"
 cp "${SOURCE_DIR}/README.md" "${tmp_target}/README.md"
@@ -74,11 +74,11 @@ mv "${tmp_dockerfile}" "${tmp_target}/Dockerfile"
 tmp_config="$(mktemp "${tmp_target}/config.yaml.tmp.XXXXXX")"
 awk '
   $0 == "name: MeshCore Control Bridge" {
-    print "name: MeshCore Control Bridge PR23"
+    print "name: MeshCore Control Bridge Telegram Forwarding"
     next
   }
   $0 == "slug: meshcore_control_bridge" {
-    print "slug: meshcore_control_bridge_pr23"
+    print "slug: meshcore_control_bridge_telegram_forwarding"
     next
   }
   $0 == "image: \"ghcr.io/j3udiel/meshcore-control-bridge\"" {
@@ -102,8 +102,8 @@ if grep -q 'COPY meshcore-control-bridge/run.sh' "${tmp_target}/Dockerfile"; the
   exit 1
 fi
 
-name_count="$(grep -cx 'name: MeshCore Control Bridge PR23' "${tmp_target}/config.yaml" || true)"
-slug_count="$(grep -cx 'slug: meshcore_control_bridge_pr23' "${tmp_target}/config.yaml" || true)"
+name_count="$(grep -cx 'name: MeshCore Control Bridge Telegram Forwarding' "${tmp_target}/config.yaml" || true)"
+slug_count="$(grep -cx 'slug: meshcore_control_bridge_telegram_forwarding' "${tmp_target}/config.yaml" || true)"
 commented_image_count="$(grep -cx '# image: "ghcr.io/j3udiel/meshcore-control-bridge"' "${tmp_target}/config.yaml" || true)"
 if [[ "${name_count}" != "1" ]]; then
   printf 'invalid transformed App name count: %s\n' "${name_count}" >&2
@@ -122,7 +122,7 @@ if [[ "${commented_image_count}" != "1" ]]; then
   exit 1
 fi
 
-previous_dir="${ADDONS_ROOT%/}/.meshcore-control-bridge-pr23-previous"
+previous_dir="${ADDONS_ROOT%/}/.meshcore-control-bridge-telegram-forwarding-previous"
 if [[ -e "${previous_dir}" ]]; then
   mv "${previous_dir}" "${previous_dir}.$$"
 fi
@@ -136,8 +136,8 @@ printf '  %s\n' "${TARGET_DIR}"
 printf '%s\n' ""
 printf '%s\n' "Next steps in Home Assistant:"
 printf '%s\n' "1. Settings -> Apps -> App Store -> reload Local apps."
-printf '%s\n' "2. Install 'MeshCore Control Bridge PR23'."
-printf '%s\n' "3. Configure Telegram options in the PR23 App."
-printf '%s\n' "4. Start the PR23 App and inspect logs."
+printf '%s\n' "2. Install 'MeshCore Control Bridge Telegram Forwarding'."
+printf '%s\n' "3. Configure Telegram options in the test App."
+printf '%s\n' "4. Start the test App and inspect logs."
 printf '%s\n' ""
 printf '%s\n' "No token, chat_id, or user_id was written by this script."

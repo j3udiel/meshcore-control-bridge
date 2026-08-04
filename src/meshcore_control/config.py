@@ -77,6 +77,7 @@ class TelegramConfig:
     command_prefix: str = "!"
     max_meshcore_message_length: int = 180
     message_prefix: str = ""
+    forwarding_rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,6 +290,9 @@ def _parse_telegram(raw_telegram: dict[str, Any]) -> TelegramConfig:
         message_prefix=_validate_telegram_message_prefix(
             raw_telegram.get("message_prefix", "")
         ),
+        forwarding_rate_limit=_parse_telegram_forwarding_rate_limit(
+            raw_telegram.get("forwarding_rate_limit", {})
+        ),
     )
 
 
@@ -298,22 +302,40 @@ def _validate_telegram_message_prefix(value: object) -> str:
         raise ValueError("telegram.message_prefix must not contain newlines")
     if any(ord(character) < 32 or ord(character) == 127 for character in prefix):
         raise ValueError("telegram.message_prefix must not contain control characters")
-    if len(prefix) > 32:
-        raise ValueError("telegram.message_prefix must be 32 characters or fewer")
+    if len(prefix) > 16:
+        raise ValueError("telegram.message_prefix must be 16 characters or fewer")
     return prefix
 
 
 def _parse_security(raw_security: dict[str, Any]) -> SecurityConfig:
-    rate_limit_data = dict(raw_security.get("rate_limit", {}))
-    return SecurityConfig(
-        rate_limit=RateLimitConfig(
-            commands=_env_int(
-                "RATE_LIMIT_COMMANDS", rate_limit_data.get("commands", 5)
-            ),
-            window_seconds=_env_int(
-                "RATE_LIMIT_WINDOW_SECONDS", rate_limit_data.get("window_seconds", 60)
-            ),
-        )
+    return SecurityConfig(rate_limit=_parse_rate_limit(raw_security.get("rate_limit", {})))
+
+
+def _parse_rate_limit(raw_rate_limit: object, *, prefix: str = "rate_limit") -> RateLimitConfig:
+    rate_limit_data = dict(raw_rate_limit) if isinstance(raw_rate_limit, dict) else {}
+    return RateLimitConfig(
+        commands=_env_int(
+            f"{prefix.upper().replace('.', '_')}_COMMANDS",
+            rate_limit_data.get("commands", 5),
+        ),
+        window_seconds=_env_int(
+            f"{prefix.upper().replace('.', '_')}_WINDOW_SECONDS",
+            rate_limit_data.get("window_seconds", 60),
+        ),
+    )
+
+
+def _parse_telegram_forwarding_rate_limit(raw_rate_limit: object) -> RateLimitConfig:
+    rate_limit_data = dict(raw_rate_limit) if isinstance(raw_rate_limit, dict) else {}
+    return RateLimitConfig(
+        commands=_env_int(
+            "TELEGRAM_FORWARDING_RATE_LIMIT_MESSAGES",
+            rate_limit_data.get("messages", rate_limit_data.get("commands", 5)),
+        ),
+        window_seconds=_env_int(
+            "TELEGRAM_FORWARDING_RATE_LIMIT_WINDOW_SECONDS",
+            rate_limit_data.get("window_seconds", 60),
+        ),
     )
 
 
@@ -351,6 +373,10 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("telegram.command_prefix must not be empty")
     if config.telegram.max_meshcore_message_length < 1:
         raise ValueError("telegram.max_meshcore_message_length must be positive")
+    if config.telegram.forwarding_rate_limit.commands < 1:
+        raise ValueError("telegram.forwarding_rate_limit.messages must be positive")
+    if config.telegram.forwarding_rate_limit.window_seconds < 1:
+        raise ValueError("telegram.forwarding_rate_limit.window_seconds must be positive")
     if config.telegram.enabled:
         if not config.telegram.allowed_private_chat_id:
             raise ValueError("telegram.allowed_private_chat_id is required when enabled")

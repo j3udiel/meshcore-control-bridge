@@ -44,7 +44,7 @@ def test_telegram_enroll_does_not_accept_token_argument() -> None:
     assert "getpass.getpass" in content
 
 
-def test_prepare_local_pr23_runs_without_python3(tmp_path: Path) -> None:
+def test_prepare_local_telegram_forwarding_runs_without_python3(tmp_path: Path) -> None:
     source_repo = tmp_path / "source"
     addons_root = tmp_path / "addons"
     _create_fake_pr_repo(source_repo)
@@ -57,27 +57,27 @@ def test_prepare_local_pr23_runs_without_python3(tmp_path: Path) -> None:
     env = {
         **os.environ,
         "PATH": str(path_without_python),
-        "MCB_PR23_TEST_ADDONS_ROOT": str(addons_root),
-        "MCB_PR23_TEST_REPO_URL": str(source_repo),
+        "MCB_TELEGRAM_TEST_ADDONS_ROOT": str(addons_root),
+        "MCB_TELEGRAM_TEST_REPO_URL": str(source_repo),
     }
     script = ROOT / "scripts/prepare-local-telegram-pr23.sh"
 
     for _ in range(2):
         subprocess.run(["bash", str(script), expected_head], check=True, env=env)
 
-    app_root = addons_root / "meshcore-control-bridge-pr23"
+    app_root = addons_root / "meshcore-control-bridge-telegram-forwarding"
     config = app_root / "config.yaml"
     lines = config.read_text(encoding="utf-8").splitlines()
 
-    assert (addons_root / ".meshcore-control-bridge-pr23-source/.git").is_dir()
+    assert (addons_root / ".meshcore-control-bridge-telegram-forwarding-source/.git").is_dir()
     assert (app_root / "Dockerfile").is_file()
     assert (app_root / "run.sh").is_file()
     assert (app_root / "pyproject.toml").is_file()
     assert (app_root / "README.md").is_file()
     assert (app_root / "src").is_dir()
     assert not (app_root / "meshcore-control-bridge/config.yaml").exists()
-    assert lines.count("name: MeshCore Control Bridge PR23") == 1
-    assert lines.count("slug: meshcore_control_bridge_pr23") == 1
+    assert lines.count("name: MeshCore Control Bridge Telegram Forwarding") == 1
+    assert lines.count("slug: meshcore_control_bridge_telegram_forwarding") == 1
     assert 'image: "ghcr.io/j3udiel/meshcore-control-bridge"' not in lines
     assert lines.count('# image: "ghcr.io/j3udiel/meshcore-control-bridge"') == 1
     dockerfile = (app_root / "Dockerfile").read_text(encoding="utf-8")
@@ -184,14 +184,14 @@ def _create_fake_pr_repo(path: Path) -> None:
                 "name: MeshCore Control Bridge",
                 "slug: meshcore_control_bridge",
                 'image: "ghcr.io/j3udiel/meshcore-control-bridge"',
-                "version: 0.1.8",
+            "version: 0.1.9",
             ]
         )
         + "\n",
         encoding="utf-8",
     )
     subprocess.run(
-        ["git", "-C", str(path), "init", "-b", "feat/telegram-readonly-commands"],
+        ["git", "-C", str(path), "init", "-b", "feat/telegram-to-meshcore-forwarding"],
         check=True,
     )
     subprocess.run(["git", "-C", str(path), "add", "."], check=True)

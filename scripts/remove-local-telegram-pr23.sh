@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_DIR="/addons/meshcore-control-bridge-pr23"
+TARGET_DIR="/addons/meshcore-control-bridge-telegram-forwarding"
 
 cat <<'TEXT'
-This removes only the local PR23 checkout:
-  /addons/meshcore-control-bridge-pr23
+This removes only the local Telegram forwarding test checkout:
+  /addons/meshcore-control-bridge-telegram-forwarding
 
-First stop and uninstall the local PR23 App from Home Assistant.
+First stop and uninstall the local Telegram forwarding test App from Home Assistant.
 This does not touch the stable App, other directories, Telegram bots, or tokens.
 TEXT
 
-printf 'Type "remove PR23" to continue: '
+printf 'Type "remove telegram forwarding" to continue: '
 read -r confirmation
 
-if [[ "${confirmation}" != "remove PR23" ]]; then
+if [[ "${confirmation}" != "remove telegram forwarding" ]]; then
   printf '%s\n' "aborted"
   exit 1
 fi
 
 case "${TARGET_DIR}" in
-  /addons/meshcore-control-bridge-pr23)
+  /addons/meshcore-control-bridge-telegram-forwarding)
     if [[ -e "${TARGET_DIR}" ]]; then
       rm -rf -- "${TARGET_DIR}"
       printf 'removed %s\n' "${TARGET_DIR}"

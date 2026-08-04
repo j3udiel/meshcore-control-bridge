@@ -12,5 +12,5 @@ configuration:
     name: Estado exterior
     description: Entidades readonly opcionales de Home Assistant usadas por !exterior.
   telegram:
-    name: Fundacion Telegram
-    description: Base Telegram Bot API desactivada por defecto para futuros comandos readonly y puente.
+    name: Telegram
+    description: Soporte Telegram Bot API desactivado por defecto para comandos readonly y reenvio opcional de texto Telegram a MeshCore.

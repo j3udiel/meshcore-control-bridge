@@ -36,7 +36,10 @@ telegram:
   forward_telegram_to_meshcore: true
   command_prefix: "!"
   max_meshcore_message_length: 180
-  message_prefix: ""
+  message_prefix: "TG: "
+  forwarding_rate_limit:
+    messages: 5
+    window_seconds: 60
 
 users:
   # Use a stable public key or node ID. Do not trust display names as authentication.

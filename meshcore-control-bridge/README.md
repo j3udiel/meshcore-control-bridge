@@ -5,6 +5,10 @@ OS or Supervised.
 
 This App reuses the installed `meshcore-dev/meshcore-ha` integration. It listens
 for `meshcore_message` events and replies with `meshcore.send_channel_message`.
+Telegram support is disabled by default. When enabled, the current development
+branch can run readonly commands from one authorized private chat and forward
+normal Telegram text to the configured MeshCore channel. MeshCore to Telegram
+forwarding is not implemented yet.
 
 The App is experimental. Do not use it for locks, alarms, fire safety, medical
 systems, or critical infrastructure.

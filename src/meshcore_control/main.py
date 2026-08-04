@@ -55,10 +55,11 @@ def build_service(
         )
     legacy_audit = AuditRepository(connection)
     normalized_settings = normalized_audit_settings or NormalizedAuditSettings.from_environment()
+    normalized_repository = NormalizedAuditRepository(connection, normalized_settings)
     audit_flow = AuditFlow(
         connection=connection,
         legacy=legacy_audit,
-        normalized=NormalizedAuditRepository(connection, normalized_settings),
+        normalized=normalized_repository,
     )
     router = CommandRouter(
         registry=registry,
@@ -162,6 +163,8 @@ async def amain() -> None:
         normalized_audit_settings,
         router=service.router,
         audit_flow=service.audit_flow,
+        meshcore_transport=service.transport,
+        normalized_audit=service.audit_flow.normalized if service.audit_flow else None,
     )
     if args.home_assistant_app:
         logger.info("Bridge ready")
@@ -174,6 +177,8 @@ def _build_telegram_foundation_service(
     *,
     router: CommandRouter,
     audit_flow: AuditFlow | None,
+    meshcore_transport: Transport,
+    normalized_audit: NormalizedAuditRepository | None,
 ) -> TelegramFoundationService | None:
     if not config.telegram.enabled:
         return None
@@ -191,6 +196,8 @@ def _build_telegram_foundation_service(
         store=TelegramStore(connection, audit_key=normalized_audit_settings.audit_key),
         router=router,
         audit_flow=audit_flow,
+        meshcore_transport=meshcore_transport,
+        normalized_audit=normalized_audit,
     )
 
 

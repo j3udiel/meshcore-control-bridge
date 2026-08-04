@@ -127,6 +127,18 @@ CREATE TABLE IF NOT EXISTS telegram_audit_events (
   reason TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS telegram_bridge_pending (
+  bridge_message_id TEXT PRIMARY KEY,
+  correlation_id TEXT NOT NULL,
+  destination_transport TEXT NOT NULL,
+  destination_room_id TEXT NOT NULL,
+  content_ref_hash TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  created_at REAL NOT NULL,
+  expires_at REAL NOT NULL
+);
 """
 
 
