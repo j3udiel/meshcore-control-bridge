@@ -56,7 +56,7 @@ config = yaml.safe_load(Path("meshcore-control-bridge/config.yaml").read_text(en
 unknown = set(config) - ALLOWED_CONFIG_KEYS
 assert not unknown, f"unknown or intentionally disallowed App config keys: {sorted(unknown)}"
 assert config["slug"] == "meshcore_control_bridge"
-assert config["version"] == "0.1.9"
+assert config["version"] == "0.1.10"
 assert config["homeassistant_api"] is True
 assert config["stage"] == "experimental"
 assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
