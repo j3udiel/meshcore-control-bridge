@@ -62,7 +62,7 @@ jobs:
       - name: Build App image
         run: |
           docker build \
-            --build-arg BUILD_VERSION=0.1.14 \
+            --build-arg BUILD_VERSION=0.1.15 \
             -f meshcore-control-bridge/Dockerfile \
             -t meshcore-control-bridge-ha-app:test \
             .

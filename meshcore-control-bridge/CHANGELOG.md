@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.1.15
+
+- Add `telegram.send_forward_confirmation`.
+- Allow successful Telegram to MeshCore confirmations to be disabled.
+- Default successful forwarding confirmations to disabled.
+- When `false`, normal Telegram messages are forwarded to MeshCore without
+  replying `Enviado a MeshCore.`
+- When `true`, the existing success confirmation is preserved.
+- Keep errors, authorization failures, rate limits, and oversized-message
+  responses visible.
+- Keep Telegram commands responding normally.
+- Keep MeshCore to Telegram forwarding unchanged.
+- Preserve existing Telegram credentials, offset, and authorized senders.
+- Accept only real boolean values.
+- Does not add commands, transports, forwarding or echo-prevention changes, or
+  USB release work.
+
 ## 0.1.14
 
 - Separate Telegram operational state from the audit database.
