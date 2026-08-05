@@ -99,11 +99,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.14`,
+The App version in `config.yaml` selects the image tag. For version `0.1.15`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.14
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.15
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -237,6 +237,12 @@ Telegram offset, update deduplication, local Telegram audit rows, and pending
 bridge records no longer contend with `audit.db` audit and command writes.
 Existing Telegram rows are copied idempotently from `audit.db` with
 `INSERT OR IGNORE`; `audit.db` is preserved unchanged.
+
+Version `0.1.15` adds `telegram.send_forward_confirmation`. It defaults to
+`false`, so successful Telegram to MeshCore forwards are no longer confirmed in
+Telegram unless the operator enables the option. Errors, rate limits,
+authorization failures, oversized-message responses, commands, and MeshCore to
+Telegram forwarding are unchanged.
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with
