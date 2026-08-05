@@ -5,6 +5,7 @@ import json
 import sqlite3
 
 from meshcore_control.models import InboundMessage
+from meshcore_control.storage.database import write_transaction
 
 
 def _text_hash(text: str) -> str:
@@ -16,8 +17,7 @@ class AuditRepository:
         self.connection = connection
 
     def record_inbound_message(self, message: InboundMessage) -> None:
-        self.insert_inbound_message(message)
-        self.connection.commit()
+        write_transaction(self.connection, lambda: self.insert_inbound_message(message))
 
     def insert_inbound_message(self, message: InboundMessage) -> None:
         self.connection.execute(
@@ -46,15 +46,17 @@ class AuditRepository:
         duration_ms: int,
         error: str | None,
     ) -> None:
-        self.insert_command(
-            message=message,
-            command=command,
-            args=args,
-            result=result,
-            duration_ms=duration_ms,
-            error=error,
+        write_transaction(
+            self.connection,
+            lambda: self.insert_command(
+                message=message,
+                command=command,
+                args=args,
+                result=result,
+                duration_ms=duration_ms,
+                error=error,
+            ),
         )
-        self.connection.commit()
 
     def insert_command(
         self,

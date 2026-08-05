@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from meshcore_control.models import InboundMessage, RoomRef
+from meshcore_control.storage.database import write_transaction
 
 logger = logging.getLogger(__name__)
 
@@ -376,8 +377,14 @@ class NormalizedAuditRepository:
         self._validate_event(event)
         metadata_json = event.metadata_json()
         created_at = utc_rfc3339(datetime.now(UTC))
-        with self.connection:
-            self.insert_event(event, metadata_json=metadata_json, created_at=created_at)
+        write_transaction(
+            self.connection,
+            lambda: self.insert_event(
+                event,
+                metadata_json=metadata_json,
+                created_at=created_at,
+            ),
+        )
         return True
 
     def insert_event(

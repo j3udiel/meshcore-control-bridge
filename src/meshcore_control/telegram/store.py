@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 
 from meshcore_control.models import InboundMessage
+from meshcore_control.storage.database import write_transaction
 from meshcore_control.storage.normalized_audit import (
     AuditKey,
     NormalizedAuditEventType,
@@ -91,24 +92,26 @@ class TelegramStore:
 
     def seen_or_store_update(self, update_id: int) -> bool:
         now = self.clock()
-        self.connection.execute(
-            "DELETE FROM telegram_update_deduplication WHERE expires_at <= ?",
-            (now,),
-        )
         update_ref = self.update_ref_hash(update_id)
-        try:
+
+        def store_update() -> bool:
             self.connection.execute(
-                """
-                INSERT INTO telegram_update_deduplication (update_ref_hash, expires_at)
-                VALUES (?, ?)
-                """,
-                (update_ref, now + TELEGRAM_UPDATE_DEDUP_WINDOW_SECONDS),
+                "DELETE FROM telegram_update_deduplication WHERE expires_at <= ?",
+                (now,),
             )
-        except sqlite3.IntegrityError:
-            self.connection.commit()
-            return True
-        self.connection.commit()
-        return False
+            try:
+                self.connection.execute(
+                    """
+                    INSERT INTO telegram_update_deduplication (update_ref_hash, expires_at)
+                    VALUES (?, ?)
+                    """,
+                    (update_ref, now + TELEGRAM_UPDATE_DEDUP_WINDOW_SECONDS),
+                )
+            except sqlite3.IntegrityError:
+                return True
+            return False
+
+        return write_transaction(self.connection, store_update)
 
     def audit_event(
         self,
@@ -121,7 +124,8 @@ class TelegramStore:
     ) -> None:
         if reason not in TELEGRAM_REASONS:
             raise ValueError("Telegram audit reason is not allowed")
-        with self.connection:
+
+        def record_event() -> None:
             self.connection.execute(
                 """
                 INSERT INTO telegram_audit_events (
@@ -145,6 +149,8 @@ class TelegramStore:
                 ),
             )
 
+        write_transaction(self.connection, record_event)
+
     def audit_bridge_event(
         self,
         *,
@@ -164,8 +170,7 @@ class TelegramStore:
             metadata=metadata,
             causation_event_id=causation_event_id,
         )
-        with self.connection:
-            repository.insert_event(event)
+        write_transaction(self.connection, lambda: repository.insert_event(event))
         return event.event_id
 
     def create_bridge_record(
@@ -193,7 +198,7 @@ class TelegramStore:
             created_at=now,
             expires_at=now + ttl_seconds,
         )
-        with self.connection:
+        def store_record() -> None:
             self.connection.execute(
                 "DELETE FROM telegram_bridge_pending WHERE expires_at <= ?",
                 (now,),
@@ -224,6 +229,8 @@ class TelegramStore:
                     record.expires_at,
                 ),
             )
+
+        write_transaction(self.connection, store_record)
         return record
 
     def consume_pending_echo(
@@ -236,12 +243,12 @@ class TelegramStore:
     ) -> TelegramBridgeRecord | None:
         now = self.clock()
         content_ref_hash = self.content_ref_hash(content)
-        with self.connection:
+        def consume_record() -> sqlite3.Row | None:
             self.connection.execute(
                 "DELETE FROM telegram_bridge_pending WHERE expires_at <= ?",
                 (now,),
             )
-            row = self.connection.execute(
+            maybe_row = self.connection.execute(
                 """
                 SELECT *
                 FROM telegram_bridge_pending
@@ -263,6 +270,7 @@ class TelegramStore:
                     now,
                 ),
             ).fetchone()
+            row: sqlite3.Row | None = maybe_row
             if row is None:
                 return None
             self.connection.execute(
@@ -273,6 +281,12 @@ class TelegramStore:
                 """,
                 ("observed_echo", row["bridge_message_id"]),
             )
+
+            return row
+
+        row = write_transaction(self.connection, consume_record)
+        if row is None:
+            return None
         return TelegramBridgeRecord(
             bridge_message_id=str(row["bridge_message_id"]),
             correlation_id=str(row["correlation_id"]),
@@ -322,7 +336,7 @@ class TelegramStore:
         return str(row["value"]) if row else None
 
     def _set_state(self, key: str, value: str) -> None:
-        with self.connection:
+        def set_state() -> None:
             self.connection.execute(
                 """
                 INSERT INTO telegram_state (key, value)
@@ -333,3 +347,5 @@ class TelegramStore:
                 """,
                 (key, value),
             )
+
+        write_transaction(self.connection, set_state)

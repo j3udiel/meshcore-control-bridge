@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from meshcore_control.config import TelegramConfig
 from meshcore_control.models import InboundMessage, MessageIdentity, OutboundMessage, RoomRef
 from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.storage.audit_flow import AuditFlow, AuditTrail
+from meshcore_control.storage.database import is_sqlite_locked
 from meshcore_control.storage.normalized_audit import (
     NormalizedAuditEventType,
     NormalizedAuditRepository,
@@ -30,7 +32,7 @@ from meshcore_control.telegram.identity import (
     telegram_room,
     telegram_sender,
 )
-from meshcore_control.telegram.store import TelegramAuditRefs, TelegramStore
+from meshcore_control.telegram.store import TelegramAuditRefs, TelegramBridgeRecord, TelegramStore
 from meshcore_control.transport.base import Transport
 
 logger = logging.getLogger(__name__)
@@ -148,7 +150,8 @@ class MeshCoreToTelegramForwarder:
                 truncated=rendered.truncated,
                 causation_event_id=received_event_id,
             )
-            self.store.create_bridge_record(
+            _safe_create_bridge_record(
+                self.store,
                 correlation_id=_correlation_id(message, audit_trail),
                 destination_transport=TELEGRAM_TRANSPORT,
                 destination_room_id=TELEGRAM_ROOM_ID,
@@ -177,7 +180,8 @@ class MeshCoreToTelegramForwarder:
                 truncated=rendered.truncated,
                 causation_event_id=received_event_id,
             )
-            self.store.create_bridge_record(
+            _safe_create_bridge_record(
+                self.store,
                 correlation_id=_correlation_id(message, audit_trail),
                 destination_transport=TELEGRAM_TRANSPORT,
                 destination_room_id=TELEGRAM_ROOM_ID,
@@ -260,12 +264,19 @@ class MeshCoreToTelegramForwarder:
         size_bytes: int,
     ) -> bool:
         source_room = message.source_room or _meshcore_room(message.channel_index)
-        record = self.store.consume_pending_echo(
-            destination_transport=MESHCORE_TRANSPORT_NAME,
-            destination_room_id=source_room.room_id,
-            content=rendered_text,
-            size_bytes=size_bytes,
-        )
+        try:
+            record = self.store.consume_pending_echo(
+                destination_transport=MESHCORE_TRANSPORT_NAME,
+                destination_room_id=source_room.room_id,
+                content=rendered_text,
+                size_bytes=size_bytes,
+            )
+        except sqlite3.Error as exc:
+            logger.warning(
+                "Telegram bridge pending echo unavailable reason=%s",
+                _sqlite_reason(exc),
+            )
+            return True
         return record is not None
 
     def _audit_ignored(
@@ -336,14 +347,18 @@ class MeshCoreToTelegramForwarder:
         metadata: dict[str, object],
         causation_event_id: str | None = None,
     ) -> str | None:
-        return self.store.audit_bridge_event(
-            repository=self.normalized_audit,
-            event_type=event_type,
-            message=message,
-            correlation_id=_correlation_id(message, audit_trail),
-            metadata=metadata,
-            causation_event_id=causation_event_id,
-        )
+        try:
+            return self.store.audit_bridge_event(
+                repository=self.normalized_audit,
+                event_type=event_type,
+                message=message,
+                correlation_id=_correlation_id(message, audit_trail),
+                metadata=metadata,
+                causation_event_id=causation_event_id,
+            )
+        except sqlite3.Error as exc:
+            logger.warning("Bridge audit event skipped reason=%s", _sqlite_reason(exc))
+            return None
 
     async def _sleep_or_stop(self, delay: float) -> None:
         if self._stopping:
@@ -424,14 +439,20 @@ class TelegramFoundationService:
         for update in updates:
             decision = await self.process_update(update)
             decisions.append(decision)
-            self.store.persist_last_update_id(decision.update_id)
+            try:
+                self.store.persist_last_update_id(decision.update_id)
+            except sqlite3.Error as exc:
+                logger.warning(
+                    "Telegram update offset not persisted reason=%s",
+                    _sqlite_reason(exc),
+                )
         return decisions
 
     async def process_update(self, update: dict[str, Any]) -> TelegramUpdateDecision:
         update_id = _update_id(update)
         if isinstance(update.get("edited_message"), dict):
             refs = self.store.refs(update_id=update_id)
-            if self.store.seen_or_store_update(update_id):
+            if self._seen_or_store_update(update_id):
                 self._audit("telegram.update.ignored", "duplicate", refs, None, None)
                 return TelegramUpdateDecision(update_id, "duplicate", None, None)
             self._audit("telegram.update.ignored", "edited_message", refs, None, "edited")
@@ -450,7 +471,7 @@ class TelegramFoundationService:
         chat_type = str(chat.get("type", "")) if chat else None
         refs = self.store.refs(update_id=update_id, chat_id=chat_id, user_id=user_id)
 
-        if self.store.seen_or_store_update(update_id):
+        if self._seen_or_store_update(update_id):
             self._audit("telegram.update.ignored", "duplicate", refs, chat_type, None)
             return TelegramUpdateDecision(update_id, "duplicate", chat_type, None)
 
@@ -589,7 +610,8 @@ class TelegramFoundationService:
                 },
                 causation_event_id=received_event_id,
             )
-            self.store.create_bridge_record(
+            _safe_create_bridge_record(
+                self.store,
                 correlation_id=inbound.message.correlation_id if inbound.message else "",
                 destination_transport=MESHCORE_TRANSPORT_NAME,
                 destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
@@ -613,7 +635,8 @@ class TelegramFoundationService:
                 },
                 causation_event_id=received_event_id,
             )
-            self.store.create_bridge_record(
+            _safe_create_bridge_record(
+                self.store,
                 correlation_id=inbound.message.correlation_id if inbound.message else "",
                 destination_transport=MESHCORE_TRANSPORT_NAME,
                 destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
@@ -681,7 +704,8 @@ class TelegramFoundationService:
             },
             causation_event_id=received_event_id,
         )
-        record = self.store.create_bridge_record(
+        record = _safe_create_bridge_record(
+            self.store,
             correlation_id=inbound.message.correlation_id if inbound.message else "",
             destination_transport=MESHCORE_TRANSPORT_NAME,
             destination_room_id=outbound.reply_target.room_id if outbound.reply_target else "",
@@ -692,7 +716,7 @@ class TelegramFoundationService:
         logger.info(
             "Telegram message forwarded to MeshCore channel=%s status=%s",
             self.config.meshcore_channel_index,
-            record.status,
+            record.status if record is not None else "accepted_by_meshcore_transport",
         )
         self._audit("telegram.update.accepted", "forwarded", refs, chat_type, "text")
         await self._send_forward_confirmation(
@@ -783,7 +807,8 @@ class TelegramFoundationService:
             },
             causation_event_id=causation_event_id,
         )
-        self.store.create_bridge_record(
+        _safe_create_bridge_record(
+            self.store,
             correlation_id=inbound.message.correlation_id if inbound.message else "",
             destination_transport=MESHCORE_TRANSPORT_NAME,
             destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
@@ -800,14 +825,18 @@ class TelegramFoundationService:
         metadata: dict[str, object],
         causation_event_id: str | None = None,
     ) -> str | None:
-        return self.store.audit_bridge_event(
-            repository=self.normalized_audit,
-            event_type=event_type,
-            message=inbound,
-            correlation_id=inbound.message.correlation_id if inbound.message else "",
-            metadata=metadata,
-            causation_event_id=causation_event_id,
-        )
+        try:
+            return self.store.audit_bridge_event(
+                repository=self.normalized_audit,
+                event_type=event_type,
+                message=inbound,
+                correlation_id=inbound.message.correlation_id if inbound.message else "",
+                metadata=metadata,
+                causation_event_id=causation_event_id,
+            )
+        except sqlite3.Error as exc:
+            logger.warning("Bridge audit event skipped reason=%s", _sqlite_reason(exc))
+            return None
 
     async def _send_forward_confirmation(self, *, chat_id: str, text: str) -> None:
         try:
@@ -874,13 +903,23 @@ class TelegramFoundationService:
         chat_type: str | None,
         message_type: str | None,
     ) -> None:
-        self.store.audit_event(
-            event_type=event_type,
-            reason=reason,
-            refs=refs,
-            chat_type=chat_type,
-            message_type=message_type,
-        )
+        try:
+            self.store.audit_event(
+                event_type=event_type,
+                reason=reason,
+                refs=refs,
+                chat_type=chat_type,
+                message_type=message_type,
+            )
+        except sqlite3.Error as exc:
+            logger.warning("Telegram audit event skipped reason=%s", _sqlite_reason(exc))
+
+    def _seen_or_store_update(self, update_id: int) -> bool:
+        try:
+            return self.store.seen_or_store_update(update_id)
+        except sqlite3.Error as exc:
+            logger.warning("Telegram update ignored reason=%s", _sqlite_reason(exc))
+            return True
 
     async def _sleep_or_stop(self, delay: float) -> None:
         if self._stopping:
@@ -1034,3 +1073,31 @@ def _is_self_sent_meshcore(message: InboundMessage) -> bool:
         return True
     source = metadata.get("source_transport")
     return isinstance(source, str) and source == TELEGRAM_TRANSPORT
+
+
+def _safe_create_bridge_record(
+    store: TelegramStore,
+    *,
+    correlation_id: str,
+    destination_transport: str,
+    destination_room_id: str,
+    content: str,
+    size_bytes: int,
+    status: str,
+) -> TelegramBridgeRecord | None:
+    try:
+        return store.create_bridge_record(
+            correlation_id=correlation_id,
+            destination_transport=destination_transport,
+            destination_room_id=destination_room_id,
+            content=content,
+            size_bytes=size_bytes,
+            status=status,
+        )
+    except sqlite3.Error as exc:
+        logger.warning("Telegram bridge pending record skipped reason=%s", _sqlite_reason(exc))
+        return None
+
+
+def _sqlite_reason(exc: sqlite3.Error) -> str:
+    return "database_locked" if is_sqlite_locked(exc) else "storage_error"

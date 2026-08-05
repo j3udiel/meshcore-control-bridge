@@ -127,6 +127,9 @@ class BridgeService:
             message = await self.transport.receive()
             await self.process_message(message)
 
+    async def close(self) -> None:
+        await self.transport.close()
+
 
 def _trim_lora_response(text: str, max_chars: int = 480) -> str:
     normalized = "\n".join(line.rstrip() for line in text.strip().splitlines())
