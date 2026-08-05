@@ -2,15 +2,24 @@
 
 ## Unreleased
 
-- Add readonly `!bridge` status command for MeshCore and Telegram.
-- Add in-memory bridge health state with safe forwarding counters and database
-  health flags.
-- Write redacted `/data/health.json` for local diagnostics and the container
-  healthcheck.
+## 0.1.16
+
+- Add readonly `!bridge` status command for Telegram and MeshCore.
+- Add concurrency-safe in-memory bridge health state.
+- Add redacted `/data/health.json` for local diagnostics.
+- Add safe forwarding counters, transport state, and database health reporting.
+- Add Docker healthcheck support for healthy and degraded operational states.
 - Keep `!bridge` local to the originating transport.
-- Do not expose tokens, raw IDs, pubkeys, message text, entity IDs, or paths in
-  health output.
-- Does not add write commands or change forwarding behavior.
+- Send detailed `!bridge` status to Telegram.
+- Send compact LoRa-friendly `!bridge` status to MeshCore.
+- Keep degraded bridge state visible without forcing a container restart.
+- Keep forwarding, commands, and authorization behavior unchanged.
+- Exclude tokens, raw chat IDs, user IDs, sender IDs, pubkeys, message IDs,
+  message text, entity IDs, and sensitive paths from health output.
+- Restrict last-error reasons to a safe allowlist.
+- Does not add command bridging, write commands, native Home Assistant entities,
+  an HTTP endpoint, MQTT discovery, administrative bridge controls, persistent
+  runtime configuration changes, or USB release work.
 
 ## 0.1.15
 

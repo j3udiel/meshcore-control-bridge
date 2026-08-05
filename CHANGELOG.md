@@ -7,20 +7,44 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-08-05
+
 ### Added
 
-- Add readonly `!bridge` status command for MeshCore and Telegram.
-- Add in-memory bridge health state with safe forwarding counters and database
-  health flags.
-- Write redacted Home Assistant App health JSON for local diagnostics.
+- Add readonly `!bridge` status command for Telegram and MeshCore.
+- Add concurrency-safe in-memory bridge health state.
+- Add redacted `/data/health.json` for local diagnostics.
+- Add safe forwarding counters, transport state, and database health reporting.
+- Add Docker healthcheck support for healthy and degraded operational states.
 
-### Security / Behavior
+### Behavior
 
-- `!bridge` replies only on the originating transport and does not bridge
-  commands or responses.
-- Health output omits tokens, raw IDs, pubkeys, message text, entity IDs, and
-  filesystem paths.
-- No write commands or forwarding behavior changes are included.
+- `!bridge` replies only on the originating transport.
+- Telegram receives a detailed status response.
+- MeshCore receives a compact LoRa-friendly response.
+- Degraded bridge state remains visible without forcing a container restart.
+- Forwarding, commands, and authorization behavior remain unchanged.
+
+### Security
+
+- Health output excludes tokens, raw chat IDs, user IDs, sender IDs, pubkeys,
+  message IDs, message text, entity IDs, and sensitive paths.
+- Last-error reasons are restricted to a safe allowlist.
+- No command bridging or write commands are introduced.
+
+### Home Assistant
+
+- Native Home Assistant entities are not included in this release.
+- `/data/health.json` is the stable local health surface for this phase.
+- No HTTP endpoint or separate HACS integration is added.
+
+### Not Included
+
+- Administrative bridge controls.
+- Persistent runtime configuration changes.
+- MQTT discovery.
+- Native HA entities.
+- USB release work.
 
 ## [0.1.15] - 2026-08-05
 
