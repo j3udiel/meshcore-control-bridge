@@ -246,7 +246,8 @@ class MeshCoreToTelegramForwarder:
             },
             causation_event_id=received_event_id,
         )
-        self.store.create_bridge_record(
+        _safe_create_bridge_record(
+            self.store,
             correlation_id=_correlation_id(message, audit_trail),
             destination_transport=TELEGRAM_TRANSPORT,
             destination_room_id=TELEGRAM_ROOM_ID,
@@ -329,7 +330,8 @@ class MeshCoreToTelegramForwarder:
             },
             causation_event_id=causation_event_id,
         )
-        self.store.create_bridge_record(
+        _safe_create_bridge_record(
+            self.store,
             correlation_id=_correlation_id(message, audit_trail),
             destination_transport=TELEGRAM_TRANSPORT,
             destination_room_id=TELEGRAM_ROOM_ID,
@@ -521,7 +523,7 @@ class TelegramFoundationService:
     ) -> TelegramUpdateDecision:
         text = self._safe_command_text(str(message.get("text", "")))
         inbound = self._inbound_message(update_id=update_id, text=text, refs=refs)
-        audit_trail = self.audit_flow.message_received(inbound) if self.audit_flow else None
+        audit_trail = self._message_received(inbound)
         response_text: str | None = None
         try:
             if self.router is None:
@@ -837,6 +839,18 @@ class TelegramFoundationService:
         except sqlite3.Error as exc:
             logger.warning("Bridge audit event skipped reason=%s", _sqlite_reason(exc))
             return None
+
+    def _message_received(self, inbound: InboundMessage) -> AuditTrail | None:
+        if self.audit_flow is None:
+            return None
+        try:
+            return self.audit_flow.message_received(inbound)
+        except sqlite3.Error as exc:
+            logger.warning("Audit degraded stage=message_received error=%s", _sqlite_reason(exc))
+            return self.audit_flow.degraded_trail(inbound)
+        except RuntimeError:
+            logger.warning("Audit degraded stage=message_received error=storage_error")
+            return self.audit_flow.degraded_trail(inbound)
 
     async def _send_forward_confirmation(self, *, chat_id: str, text: str) -> None:
         try:

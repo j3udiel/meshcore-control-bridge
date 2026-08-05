@@ -111,7 +111,11 @@ class TelegramStore:
                 return True
             return False
 
-        return write_transaction(self.connection, store_update)
+        return write_transaction(
+            self.connection,
+            store_update,
+            operation_name="telegram.seen_or_store_update",
+        )
 
     def audit_event(
         self,
@@ -149,7 +153,11 @@ class TelegramStore:
                 ),
             )
 
-        write_transaction(self.connection, record_event)
+        write_transaction(
+            self.connection,
+            record_event,
+            operation_name="telegram.audit_event",
+        )
 
     def audit_bridge_event(
         self,
@@ -170,7 +178,7 @@ class TelegramStore:
             metadata=metadata,
             causation_event_id=causation_event_id,
         )
-        write_transaction(self.connection, lambda: repository.insert_event(event))
+        repository.record(event)
         return event.event_id
 
     def create_bridge_record(
@@ -230,7 +238,11 @@ class TelegramStore:
                 ),
             )
 
-        write_transaction(self.connection, store_record)
+        write_transaction(
+            self.connection,
+            store_record,
+            operation_name="telegram.create_bridge_record",
+        )
         return record
 
     def consume_pending_echo(
@@ -284,7 +296,11 @@ class TelegramStore:
 
             return row
 
-        row = write_transaction(self.connection, consume_record)
+        row = write_transaction(
+            self.connection,
+            consume_record,
+            operation_name="telegram.consume_pending_echo",
+        )
         if row is None:
             return None
         return TelegramBridgeRecord(
@@ -348,4 +364,8 @@ class TelegramStore:
                 (key, value),
             )
 
-        write_transaction(self.connection, set_state)
+        write_transaction(
+            self.connection,
+            set_state,
+            operation_name="telegram.set_state",
+        )

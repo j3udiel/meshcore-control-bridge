@@ -17,13 +17,14 @@ from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
 from meshcore_control.security.rate_limit import RateLimiter
 from meshcore_control.storage.audit_flow import AuditFlow
-from meshcore_control.storage.database import connect_database
+from meshcore_control.storage.database import connect_database, telegram_database_path
 from meshcore_control.storage.normalized_audit import (
     NormalizedAuditRepository,
     NormalizedAuditSettings,
 )
 from meshcore_control.storage.repositories import AuditRepository
 from meshcore_control.telegram.client import TelegramBotApiClient
+from meshcore_control.telegram.database import migrate_telegram_tables
 from meshcore_control.telegram.identity import TELEGRAM_ROOM_ID, TELEGRAM_SENDER_ID
 from meshcore_control.telegram.service import MeshCoreToTelegramForwarder, TelegramFoundationService
 from meshcore_control.telegram.store import TelegramStore
@@ -43,7 +44,7 @@ def build_service(
     *,
     normalized_audit_settings: NormalizedAuditSettings | None = None,
 ) -> BridgeService:
-    connection = connect_database(config.database_path)
+    connection = connect_database(config.database_path, connection_name="audit")
     registry = build_registry()
     services: dict[str, object] = {"registry": registry, "config": config}
     if config.homeassistant.base_url and config.homeassistant.token:
@@ -191,7 +192,20 @@ def _build_telegram_services(
         token_file=config.telegram.bot_token_file,
     )
     register_redaction_secret(token.value)
-    connection = connect_database(config.database_path)
+    telegram_db_path = telegram_database_path(config.database_path)
+    connection = connect_database(telegram_db_path, connection_name="telegram")
+    if telegram_db_path != config.database_path:
+        migration_source = connect_database(
+            config.database_path,
+            connection_name="telegram-migration-source",
+        )
+        try:
+            migrate_telegram_tables(
+                source_connection=migration_source,
+                target_connection=connection,
+            )
+        finally:
+            migration_source.close()
     client = TelegramBotApiClient(token=token)
     store = TelegramStore(connection, audit_key=normalized_audit_settings.audit_key)
     telegram_service = TelegramFoundationService(
