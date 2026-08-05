@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.1.14
+
+- Separate Telegram operational state from the audit database.
+- Prevent Telegram bridge writes from contending with audit and command writes.
+- Fix transaction boundaries that previously protected the wrong SQLite
+  connection.
+- Reduce SQLite busy waits that blocked the asyncio event loop.
+- Preserve Telegram offset, deduplication, and pending bridge records during
+  migration.
+- Improve bridge responsiveness under concurrent Telegram and MeshCore traffic.
+- Copy existing Telegram operational rows idempotently from `audit.db` to
+  `telegram.db`.
+- Preserve `audit.db` unchanged.
+- Retain existing Telegram activation state, offset, and pending records.
+- Use `INSERT OR IGNORE` migration that is safe to run repeatedly.
+- Keep echo prevention fail-closed.
+- Keep commands and authorization unchanged.
+- Do not add raw message text, IDs, or tokens to logs.
+- Keep `allow_unidentified_readonly_testing` diagnostic-only.
+- Does not add commands, transports, groups, media, webhooks, write commands, or
+  USB release work.
+
 ## 0.1.13
 
 - Fix nested SQLite transaction failures during audit and command processing.
