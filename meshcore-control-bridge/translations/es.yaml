@@ -14,3 +14,7 @@ configuration:
   telegram:
     name: Telegram
     description: Soporte Telegram Bot API desactivado por defecto para comandos readonly y reenvio opcional de texto normal con MeshCore.
+    fields:
+      send_forward_confirmation:
+        name: Confirmar mensajes reenviados
+        description: Envia una confirmacion en Telegram despues de reenviar correctamente un mensaje a MeshCore.

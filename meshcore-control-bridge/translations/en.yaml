@@ -14,3 +14,7 @@ configuration:
   telegram:
     name: Telegram
     description: Disabled-by-default Telegram Bot API support for readonly commands and optional normal-text forwarding with MeshCore.
+    fields:
+      send_forward_confirmation:
+        name: Confirm forwarded messages
+        description: Send a Telegram confirmation after successfully forwarding a message to MeshCore.

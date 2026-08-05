@@ -721,10 +721,13 @@ class TelegramFoundationService:
             record.status if record is not None else "accepted_by_meshcore_transport",
         )
         self._audit("telegram.update.accepted", "forwarded", refs, chat_type, "text")
-        await self._send_forward_confirmation(
-            chat_id=self.config.allowed_private_chat_id,
-            text=MESHCORE_FORWARD_SUCCESS_TEXT,
-        )
+        if self.config.send_forward_confirmation:
+            await self._send_forward_confirmation(
+                chat_id=self.config.allowed_private_chat_id,
+                text=MESHCORE_FORWARD_SUCCESS_TEXT,
+            )
+        else:
+            logger.info("Telegram forward confirmation skipped reason=disabled")
         if forwarded_event_id is not None:
             logger.info("Telegram bridge event recorded status=accepted_by_meshcore_transport")
         return TelegramUpdateDecision(update_id, "forwarded", chat_type, "text")

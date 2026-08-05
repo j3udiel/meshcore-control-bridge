@@ -61,6 +61,7 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
                     "max_telegram_message_length": 3900,
                     "message_prefix": "TG: ",
                     "meshcore_to_telegram_prefix": "MC: ",
+                    "send_forward_confirmation": False,
                     "forwarding_rate_limit": {"messages": 5, "window_seconds": 60},
                     "inbound_forwarding_rate_limit": {"messages": 20, "window_seconds": 60},
                 },
@@ -95,6 +96,7 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.telegram.meshcore_channel_index == 1
     assert config.telegram.message_prefix == "TG: "
     assert config.telegram.meshcore_to_telegram_prefix == "MC: "
+    assert config.telegram.send_forward_confirmation is False
     assert config.telegram.max_telegram_message_length == 3900
     assert config.telegram.forwarding_rate_limit.commands == 5
     assert config.telegram.inbound_forwarding_rate_limit.commands == 20
@@ -146,6 +148,7 @@ def test_homeassistant_app_telegram_defaults_match_yaml_defaults() -> None:
 
     assert options.telegram.message_prefix == "TG: "
     assert options.telegram.meshcore_to_telegram_prefix == "MC: "
+    assert options.telegram.send_forward_confirmation is False
     assert options.telegram.forwarding_rate_limit.commands == 5
     assert options.telegram.forwarding_rate_limit.window_seconds == 60
     assert options.telegram.inbound_forwarding_rate_limit.commands == 20
@@ -170,6 +173,20 @@ def test_homeassistant_app_telegram_rejects_invalid_inbound_forwarding_prefix() 
                 "channel_index": 1,
                 "allow_unidentified_readonly_testing": True,
                 "telegram": {"meshcore_to_telegram_prefix": "MC:\n"},
+            }
+        )
+
+
+@pytest.mark.parametrize("value", [None, "false", "true"])
+def test_homeassistant_app_telegram_rejects_non_boolean_forward_confirmation(
+    value: object,
+) -> None:
+    with pytest.raises(ValueError, match="send_forward_confirmation"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "allow_unidentified_readonly_testing": True,
+                "telegram": {"send_forward_confirmation": value},
             }
         )
 
@@ -319,6 +336,7 @@ def test_homeassistant_app_upgrade_from_0_1_11_options_keeps_authorized_senders(
     assert options.authorized_senders[0].pubkey_prefix == "abcdef123456"
     assert options.telegram.enabled is True
     assert options.telegram.max_telegram_message_length == 3900
+    assert options.telegram.send_forward_confirmation is False
 
 
 def test_homeassistant_app_upgrade_from_0_1_12_options_keeps_authorized_senders() -> None:
@@ -350,6 +368,7 @@ def test_homeassistant_app_upgrade_from_0_1_12_options_keeps_authorized_senders(
 
     assert options.authorized_senders[0].role is Role.readonly
     assert options.telegram.allowed_private_chat_id == "1001"
+    assert options.telegram.send_forward_confirmation is False
 
 
 def test_homeassistant_app_telegram_does_not_replace_meshcore_authorized_senders() -> None:

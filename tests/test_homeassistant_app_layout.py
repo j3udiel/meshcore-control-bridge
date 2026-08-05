@@ -76,6 +76,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
         "max_telegram_message_length": 3900,
         "message_prefix": "TG: ",
         "meshcore_to_telegram_prefix": "MC: ",
+        "send_forward_confirmation": False,
         "forwarding_rate_limit": {"messages": 5, "window_seconds": 60},
         "inbound_forwarding_rate_limit": {"messages": 20, "window_seconds": 60},
     }
@@ -88,6 +89,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
     assert config["schema"]["telegram"]["meshcore_channel_index"] == "int(1,255)"
     assert config["schema"]["telegram"]["max_meshcore_message_length"] == "int(1,1000)"
     assert config["schema"]["telegram"]["max_telegram_message_length"] == "int(1,4096)"
+    assert config["schema"]["telegram"]["send_forward_confirmation"] == "bool"
     assert config["schema"]["telegram"]["forwarding_rate_limit"] == {
         "messages": "int(1,100)",
         "window_seconds": "int(1,3600)",
