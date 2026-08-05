@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meshcore-control-bridge"
-version = "0.1.15"
+version = "0.1.16"
 description = "Local out-of-band command bridge for Home Assistant over MeshCore"
 readme = "README.md"
 requires-python = ">=3.12"

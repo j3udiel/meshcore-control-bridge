@@ -48,7 +48,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
     }
 
     assert set(config) <= allowed_config_keys
-    assert config["version"] == "0.1.15"
+    assert config["version"] == "0.1.16"
     assert config["homeassistant_api"] is True
     assert config["stage"] == "experimental"
     assert config["image"] == "ghcr.io/j3udiel/meshcore-control-bridge"
