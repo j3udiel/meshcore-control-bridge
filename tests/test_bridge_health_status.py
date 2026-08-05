@@ -119,7 +119,7 @@ def test_bridge_command_from_meshcore_uses_compact_lora_output(tmp_path: Path) -
     outbound = asyncio.run(service.process_message(_message()))
 
     assert outbound is not None
-    assert "Bridge 0.1.16" in outbound.text
+    assert "Bridge 0.1.17" in outbound.text
     assert "MC:on" in outbound.text
     assert "TG:on" in outbound.text
     assert "T2M:on" in outbound.text
@@ -136,7 +136,7 @@ def test_bridge_command_from_telegram_returns_full_status_to_telegram(tmp_path: 
     outbound = asyncio.run(service.process_message(_message(transport="telegram")))
 
     assert outbound is not None
-    assert "Version: 0.1.16" in outbound.text
+    assert "Version: 0.1.17" in outbound.text
     assert "MeshCore: connected" in outbound.text
     assert "Telegram: connected" in outbound.text
     assert "Channel: 1" in outbound.text

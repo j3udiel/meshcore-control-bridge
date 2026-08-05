@@ -7,18 +7,49 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-08-05
+
 ### Added
 
 - Publish redacted bridge health snapshots as Home Assistant events.
-- Add `health.home_assistant_events_enabled` and `health.heartbeat_seconds`.
-- Document trigger-based Home Assistant template sensors and alert automations.
+- Add `health.home_assistant_events_enabled`.
+- Add configurable health heartbeat interval.
+- Add a single async health publisher with coalescing and deduplication.
+- Add Home Assistant template sensor, binary sensor, alert, and dashboard
+  examples.
+- Extend `!bridge` with Home Assistant event and heartbeat status.
 
-### Security / Behavior
+### Behavior
 
-- Health events are readonly and omit tokens, raw IDs, pubkeys, message text,
-  entity IDs, paths, and correlation IDs.
-- Health event publication is coalesced, best-effort, and does not change
-  forwarding, authorization, commands, or Docker healthcheck behavior.
+- Event type: `meshcore_control_bridge_health`.
+- Health events are published after startup, state changes, and heartbeat
+  intervals.
+- Rapid changes are coalesced.
+- Functional duplicates are skipped except for heartbeat publication.
+- Reconnection publishes the latest snapshot.
+- Publication failures do not block forwarding, commands, or Docker healthcheck
+  behavior.
+
+### Security
+
+- Event payload excludes tokens, raw IDs, pubkeys, message IDs, message text,
+  command contents, entity IDs, paths, and correlation IDs.
+- Last-error reasons remain sanitized.
+- No write commands or command bridging are introduced.
+
+### Home Assistant
+
+- Native entities are not created automatically.
+- Trigger-based template sensors are documented.
+- No `configuration.yaml` modification is performed.
+- No MQTT, HTTP endpoint, or HACS integration is included.
+
+### Not Included
+
+- Administrative bridge controls.
+- Persistent runtime configuration changes.
+- Native HA integration.
+- USB release work.
 
 ## [0.1.16] - 2026-08-05
 
