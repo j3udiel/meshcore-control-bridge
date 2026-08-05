@@ -276,6 +276,12 @@ Native Home Assistant entities are not created in this phase because the App is
 not a Home Assistant integration. To expose sensors, add trigger-based template
 sensors to your own Home Assistant configuration:
 
+Trigger-based template sensors do not have state until Home Assistant receives
+the first `meshcore_control_bridge_health` event after they are loaded. After
+adding this YAML, restart Home Assistant or reload Template entities from
+Developer Tools, then wait for the next bridge heartbeat or restart the App to
+publish an initial event.
+
 ```yaml
 template:
   - trigger:

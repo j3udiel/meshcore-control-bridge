@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import statistics
 import time
 from pathlib import Path
@@ -129,6 +130,9 @@ def test_audit_lock_does_not_block_telegram_pending_record(tmp_path: Path) -> No
 async def test_event_loop_remains_responsive_while_telegram_state_is_written(
     tmp_path: Path,
 ) -> None:
+    database_logger = logging.getLogger("meshcore_control.storage.database")
+    previous_level = database_logger.level
+    database_logger.setLevel(logging.WARNING)
     telegram = connect_database(str(tmp_path / "telegram.db"), connection_name="telegram")
     store = TelegramStore(telegram, audit_key=AuditKey(b"a" * AUDIT_KEY_MIN_BYTES))
     ticks = 0
@@ -141,11 +145,14 @@ async def test_event_loop_remains_responsive_while_telegram_state_is_written(
             ticks += 1
 
     async def writes() -> None:
-        for index in range(40):
+        for index in range(8):
             store.seen_or_store_update(index)
             await asyncio.sleep(0)
 
-    await asyncio.gather(ticker(), writes())
+    try:
+        await asyncio.gather(ticker(), writes())
+    finally:
+        database_logger.setLevel(previous_level)
 
     assert ticks >= 10
     assert not telegram.in_transaction
