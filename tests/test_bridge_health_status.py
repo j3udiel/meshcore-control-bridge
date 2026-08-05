@@ -207,7 +207,7 @@ def test_last_command_from_meshcore_returns_compact_activity(tmp_path: Path) -> 
     assert outbound.text == "\n".join(
         [
             "Last",
-            "T2M:2m ago M2T:8m ago",
+            "T2M:2m M2T:8m",
             "OK:14/9 F:0/0",
             "Cmd:23 Up:4h18m",
             "Err:none",
@@ -293,10 +293,10 @@ def test_relative_time_formats_are_deterministic() -> None:
 
     assert relative_time(None, now=now) == "never"
     assert relative_time(now, now=now) == "now"
-    assert relative_time(now - timedelta(seconds=9), now=now) == "9s ago"
-    assert relative_time(now - timedelta(minutes=2), now=now) == "2m ago"
-    assert relative_time(now - timedelta(hours=4, minutes=18), now=now) == "4h18m ago"
-    assert relative_time(now - timedelta(days=3, hours=2), now=now) == "3d2h ago"
+    assert relative_time(now - timedelta(seconds=9), now=now) == "9s"
+    assert relative_time(now - timedelta(minutes=2), now=now) == "2m"
+    assert relative_time(now - timedelta(hours=4, minutes=18), now=now) == "4h18m"
+    assert relative_time(now - timedelta(days=3, hours=2), now=now) == "3d2h"
 
 
 def test_last_activity_render_can_use_explicit_snapshot_time() -> None:

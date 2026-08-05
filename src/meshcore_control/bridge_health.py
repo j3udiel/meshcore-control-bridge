@@ -424,13 +424,13 @@ def render_last_activity(
         [
             "Last activity",
             "",
-            f"TG -> MC: {tg_to_mc}",
-            f"MC -> TG: {mc_to_tg}",
+            f"TG -> MC: {_with_ago(tg_to_mc)}",
+            f"MC -> TG: {_with_ago(mc_to_tg)}",
             f"TG -> MC: {snapshot.tg_to_mc_success} success / {snapshot.tg_to_mc_failed} failed",
             f"MC -> TG: {snapshot.mc_to_tg_success} success / {snapshot.mc_to_tg_failed} failed",
             f"Commands: {snapshot.commands_processed}",
             f"Last error: {reason}",
-            f"Last error time: {last_error_time}",
+            f"Last error time: {_with_ago(last_error_time)}",
             f"Uptime: {uptime}",
         ]
     )
@@ -444,7 +444,7 @@ def relative_time(value: datetime | None, *, now: datetime | None = None) -> str
     delta_seconds = int((reference - current).total_seconds())
     if delta_seconds <= 0:
         return "now"
-    return f"{relative_duration(timedelta(seconds=delta_seconds), compact=True)} ago"
+    return relative_duration(timedelta(seconds=delta_seconds), compact=True)
 
 
 def relative_duration(value: timedelta, *, compact: bool = False) -> str:
@@ -496,6 +496,10 @@ def _channel_unknown() -> str:
 def _safe_reason(reason: str) -> str:
     normalized = reason.strip().lower().replace(" ", "_")
     return normalized if normalized in _SAFE_FAILURE_REASONS else "storage_error"
+
+
+def _with_ago(value: str) -> str:
+    return value if value in {"never", "now"} else f"{value} ago"
 
 
 def _utc_now(value: datetime | None = None) -> datetime:
