@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from meshcore_control import __version__
+
+logger = logging.getLogger(__name__)
 
 _SAFE_FAILURE_REASONS = {
     "none",
@@ -213,24 +216,32 @@ class BridgeHealthState:
         if not self.healthcheck_path:
             return
         path = Path(self.healthcheck_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(self.health_payload(), ensure_ascii=True, sort_keys=True)
-        fd, temp_name = tempfile.mkstemp(
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            dir=str(path.parent),
-            text=True,
-        )
+        temp_name: str | None = None
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = json.dumps(self.health_payload(), ensure_ascii=True, sort_keys=True)
+            fd, temp_name = tempfile.mkstemp(
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                dir=str(path.parent),
+                text=True,
+            )
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(payload)
                 handle.write("\n")
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_name, path)
+            temp_name = None
+        except OSError:
+            logger.warning("Bridge healthcheck write skipped reason=storage_error")
         finally:
-            if os.path.exists(temp_name):
-                os.unlink(temp_name)
+            if temp_name is not None:
+                try:
+                    if os.path.exists(temp_name):
+                        os.unlink(temp_name)
+                except OSError:
+                    logger.warning("Bridge healthcheck temp cleanup skipped reason=storage_error")
 
     def _set_db_health(self, db_name: str, state: str, *, reason: str | None) -> None:
         if state not in {"ok", "degraded"}:

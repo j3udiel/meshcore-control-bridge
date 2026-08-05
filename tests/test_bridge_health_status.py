@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import os
 import threading
 from pathlib import Path
 
@@ -242,3 +244,60 @@ def test_healthcheck_accepts_degraded_payload(tmp_path: Path, monkeypatch) -> No
     )
 
     healthcheck_main()
+
+
+def test_healthcheck_write_failure_does_not_raise(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    health_path = tmp_path / "secret-data" / "health.json"
+    health = BridgeHealthState(healthcheck_path=str(health_path))
+
+    def fail_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+        raise OSError("permission denied")
+
+    monkeypatch.setattr("meshcore_control.bridge_health.tempfile.mkstemp", fail_mkstemp)
+
+    with caplog.at_level(logging.WARNING):
+        health.record_command_processed()
+
+    assert "Bridge healthcheck write skipped reason=storage_error" in caplog.text
+    assert "secret-data" not in caplog.text
+    assert not health_path.exists()
+
+
+def test_healthcheck_temp_file_is_removed_after_replace_failure(
+    tmp_path: Path,
+    monkeypatch,
+    caplog,
+) -> None:
+    health_path = tmp_path / "health.json"
+    temp_files: list[str] = []
+    real_mkstemp = tempfile_mkstemp()
+
+    def tracking_mkstemp(*args: object, **kwargs: object) -> tuple[int, str]:
+        fd, name = real_mkstemp(*args, **kwargs)
+        temp_files.append(name)
+        return fd, name
+
+    def fail_replace(source: str, destination: object) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr("meshcore_control.bridge_health.tempfile.mkstemp", tracking_mkstemp)
+    monkeypatch.setattr("meshcore_control.bridge_health.os.replace", fail_replace)
+
+    with caplog.at_level(logging.WARNING):
+        health = BridgeHealthState(healthcheck_path=str(health_path))
+        health.record_command_processed()
+
+    assert temp_files
+    assert all(not os.path.exists(name) for name in temp_files)
+    assert "Bridge healthcheck write skipped reason=storage_error" in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+def tempfile_mkstemp():
+    import tempfile
+
+    return tempfile.mkstemp
