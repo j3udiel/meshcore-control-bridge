@@ -254,10 +254,150 @@ entity IDs, or filesystem paths.
 The App writes `/data/health.json` atomically for the Docker healthcheck and
 local diagnostics. The file may report `status: degraded` while the process
 stays healthy; degraded bridge state is visible without forcing a Supervisor
-restart. Native Home Assistant entities are not created in this phase because
-the App is not a Home Assistant integration. A future integration or MQTT
-discovery layer can expose sensors such as bridge status, version, counters, and
-last-error state.
+restart.
+
+The App can also publish the redacted health snapshot as a Home Assistant event:
+
+```yaml
+health:
+  home_assistant_events_enabled: true
+  heartbeat_seconds: 60
+```
+
+The event type is `meshcore_control_bridge_health`. It is emitted after startup,
+after relevant state changes, and on the configured heartbeat. The event payload
+contains only safe status fields: version, uptime, MeshCore and Telegram state,
+channel index, forwarding flags, database health, counters, last activity
+timestamps, and a sanitized last-error reason. It never includes tokens, chat
+IDs, user IDs, sender IDs, pubkeys, message IDs, message text, correlation IDs,
+paths, configured entity IDs, or command contents.
+
+Native Home Assistant entities are not created in this phase because the App is
+not a Home Assistant integration. To expose sensors, add trigger-based template
+sensors to your own Home Assistant configuration:
+
+```yaml
+template:
+  - trigger:
+      - platform: event
+        event_type: meshcore_control_bridge_health
+    sensor:
+      - name: MeshCore Control Bridge Status
+        unique_id: meshcore_control_bridge_status
+        state: "{{ trigger.event.data.status }}"
+        attributes:
+          version: "{{ trigger.event.data.version }}"
+          meshcore: "{{ trigger.event.data.meshcore }}"
+          telegram: "{{ trigger.event.data.telegram }}"
+          channel: "{{ trigger.event.data.channel }}"
+          tg_to_mc: "{{ trigger.event.data.forwarding.telegram_to_meshcore }}"
+          mc_to_tg: "{{ trigger.event.data.forwarding.meshcore_to_telegram }}"
+          confirmation: "{{ trigger.event.data.forwarding.confirmation }}"
+          audit_db: "{{ trigger.event.data.database.audit }}"
+          telegram_db: "{{ trigger.event.data.database.telegram }}"
+      - name: MeshCore Control Bridge Version
+        unique_id: meshcore_control_bridge_version
+        state: "{{ trigger.event.data.version }}"
+      - name: MeshCore Control Bridge Last TG to MC
+        unique_id: meshcore_control_bridge_last_tg_to_mc
+        state: "{{ trigger.event.data.last_activity.telegram_to_meshcore or 'none' }}"
+      - name: MeshCore Control Bridge Last MC to TG
+        unique_id: meshcore_control_bridge_last_mc_to_tg
+        state: "{{ trigger.event.data.last_activity.meshcore_to_telegram or 'none' }}"
+      - name: MeshCore Control Bridge Last Error
+        unique_id: meshcore_control_bridge_last_error
+        state: "{{ trigger.event.data.last_error.reason }}"
+      - name: MeshCore Control Bridge TG to MC Success
+        unique_id: meshcore_control_bridge_tg_to_mc_success
+        state: "{{ trigger.event.data.counters.tg_to_mc_success }}"
+      - name: MeshCore Control Bridge TG to MC Failed
+        unique_id: meshcore_control_bridge_tg_to_mc_failed
+        state: "{{ trigger.event.data.counters.tg_to_mc_failed }}"
+      - name: MeshCore Control Bridge MC to TG Success
+        unique_id: meshcore_control_bridge_mc_to_tg_success
+        state: "{{ trigger.event.data.counters.mc_to_tg_success }}"
+      - name: MeshCore Control Bridge MC to TG Failed
+        unique_id: meshcore_control_bridge_mc_to_tg_failed
+        state: "{{ trigger.event.data.counters.mc_to_tg_failed }}"
+      - name: MeshCore Control Bridge Commands Processed
+        unique_id: meshcore_control_bridge_commands_processed
+        state: "{{ trigger.event.data.counters.commands_processed }}"
+    binary_sensor:
+      - name: MeshCore Control Bridge Healthy
+        unique_id: meshcore_control_bridge_healthy
+        state: "{{ trigger.event.data.status == 'ok' }}"
+```
+
+Recommended automations:
+
+```yaml
+automation:
+  - alias: MeshCore Control Bridge degraded
+    trigger:
+      - platform: state
+        entity_id: sensor.meshcore_control_bridge_status
+        to: degraded
+        for: "00:05:00"
+    action:
+      - service: notify.notify
+        data:
+          message: MeshCore Control Bridge has been degraded for five minutes.
+
+  - alias: MeshCore Control Bridge Telegram disconnected
+    trigger:
+      - platform: state
+        entity_id: sensor.meshcore_control_bridge_status
+    condition:
+      - condition: template
+        value_template: "{{ state_attr('sensor.meshcore_control_bridge_status', 'telegram') == 'disconnected' }}"
+    action:
+      - service: notify.notify
+        data:
+          message: MeshCore Control Bridge Telegram polling is disconnected.
+
+  - alias: MeshCore Control Bridge MeshCore disconnected
+    trigger:
+      - platform: state
+        entity_id: sensor.meshcore_control_bridge_status
+    condition:
+      - condition: template
+        value_template: "{{ state_attr('sensor.meshcore_control_bridge_status', 'meshcore') == 'disconnected' }}"
+    action:
+      - service: notify.notify
+        data:
+          message: MeshCore Control Bridge MeshCore transport is disconnected.
+
+  - alias: MeshCore Control Bridge forwarding failures increased
+    trigger:
+      - platform: state
+        entity_id:
+          - sensor.meshcore_control_bridge_tg_to_mc_failed
+          - sensor.meshcore_control_bridge_mc_to_tg_failed
+    condition:
+      - condition: template
+        value_template: "{{ trigger.from_state is not none and trigger.to_state.state | int(0) > trigger.from_state.state | int(0) }}"
+    action:
+      - service: notify.notify
+        data:
+          message: MeshCore Control Bridge forwarding failure counter increased.
+```
+
+Simple dashboard card:
+
+```yaml
+type: entities
+title: MeshCore Control Bridge
+entities:
+  - entity: binary_sensor.meshcore_control_bridge_healthy
+  - entity: sensor.meshcore_control_bridge_status
+  - entity: sensor.meshcore_control_bridge_version
+  - entity: sensor.meshcore_control_bridge_last_error
+  - entity: sensor.meshcore_control_bridge_tg_to_mc_success
+  - entity: sensor.meshcore_control_bridge_tg_to_mc_failed
+  - entity: sensor.meshcore_control_bridge_mc_to_tg_success
+  - entity: sensor.meshcore_control_bridge_mc_to_tg_failed
+  - entity: sensor.meshcore_control_bridge_commands_processed
+```
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with

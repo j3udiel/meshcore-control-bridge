@@ -6,6 +6,7 @@ import logging
 from contextlib import suppress
 
 from meshcore_control.adapters.homeassistant import HomeAssistantClient
+from meshcore_control.adapters.homeassistant_ws import HomeAssistantWebSocketClient
 from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
 from meshcore_control.auth.roles import Role
@@ -13,6 +14,7 @@ from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import AppConfig, load_config
 from meshcore_control.homeassistant_app import load_homeassistant_app_config
+from meshcore_control.homeassistant_health_events import HomeAssistantHealthEventPublisher
 from meshcore_control.logging import configure_logging, register_redaction_secret
 from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
@@ -27,7 +29,10 @@ from meshcore_control.storage.repositories import AuditRepository
 from meshcore_control.telegram.client import TelegramBotApiClient
 from meshcore_control.telegram.database import migrate_telegram_tables
 from meshcore_control.telegram.identity import TELEGRAM_ROOM_ID, TELEGRAM_SENDER_ID
-from meshcore_control.telegram.service import MeshCoreToTelegramForwarder, TelegramFoundationService
+from meshcore_control.telegram.service import (
+    MeshCoreToTelegramForwarder,
+    TelegramFoundationService,
+)
 from meshcore_control.telegram.store import TelegramStore
 from meshcore_control.telegram.token import load_or_import_token
 from meshcore_control.transport.base import Transport
@@ -191,9 +196,34 @@ async def amain() -> None:
         bridge_health=bridge_health,
     )
     service.normal_text_forwarder = meshcore_to_telegram_forwarder
+    health_event_publisher = _build_health_event_publisher(config, bridge_health)
     if args.home_assistant_app:
         logger.info("Bridge ready")
-    await _run_services(service, telegram_service)
+    await _run_services(service, telegram_service, health_event_publisher)
+
+
+def _build_health_event_publisher(
+    config: AppConfig,
+    bridge_health: BridgeHealthState,
+) -> HomeAssistantHealthEventPublisher | None:
+    if not config.health.home_assistant_events_enabled:
+        return None
+    if not config.homeassistant.base_url or not config.homeassistant.token:
+        return None
+    client = HomeAssistantWebSocketClient(
+        base_url=config.homeassistant.base_url,
+        token=config.homeassistant.token,
+        verify_tls=config.homeassistant.verify_tls,
+        timeout_seconds=config.homeassistant.timeout_seconds,
+        websocket_url_override=config.homeassistant.websocket_url,
+    )
+    return HomeAssistantHealthEventPublisher(
+        health=bridge_health,
+        client=client,
+        channel_index=config.meshcore.channel_index,
+        heartbeat_seconds=config.health.heartbeat_seconds,
+        enabled=config.health.home_assistant_events_enabled,
+    )
 
 
 def _build_telegram_services(
@@ -254,13 +284,18 @@ def _build_telegram_services(
 async def _run_services(
     bridge_service: BridgeService,
     telegram_service: TelegramFoundationService | None,
+    health_event_publisher: HomeAssistantHealthEventPublisher | None = None,
 ) -> None:
-    if telegram_service is None:
+    if telegram_service is None and health_event_publisher is None:
         await bridge_service.run_forever()
         return
+    if health_event_publisher is not None:
+        health_event_publisher.start()
     bridge_task = asyncio.create_task(bridge_service.run_forever(), name="bridge-service")
-    telegram_task = asyncio.create_task(telegram_service.run(), name="telegram-foundation")
-    tasks = {bridge_task, telegram_task}
+    tasks = {bridge_task}
+    if telegram_service is not None:
+        telegram_task = asyncio.create_task(telegram_service.run(), name="telegram-foundation")
+        tasks.add(telegram_task)
     first_exception: BaseException | None = None
     try:
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
@@ -271,7 +306,11 @@ async def _run_services(
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
     finally:
-        telegram_service.stop()
+        if telegram_service is not None:
+            telegram_service.stop()
+        if health_event_publisher is not None:
+            with suppress(Exception):
+                await health_event_publisher.stop()
         for task in tasks:
             if not task.done():
                 task.cancel()

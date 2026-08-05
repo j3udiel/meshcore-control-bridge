@@ -105,6 +105,8 @@ def test_telegram_config_loads_disabled_by_default(tmp_path) -> None:
     assert config.telegram.bot_token_file == "/data/telegram.bot_token"
     assert config.telegram.meshcore_channel_index == 1
     assert config.telegram.send_forward_confirmation is False
+    assert config.health.home_assistant_events_enabled is True
+    assert config.health.heartbeat_seconds == 60
 
 
 def test_telegram_enabled_requires_private_chat_and_user(tmp_path) -> None:
@@ -216,6 +218,53 @@ telegram:
     )
 
     with pytest.raises(ValueError, match="send_forward_confirmation"):
+        load_config(str(config_file))
+
+
+def test_health_config_loads_values(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+health:
+  home_assistant_events_enabled: false
+  heartbeat_seconds: 120
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.health.home_assistant_events_enabled is False
+    assert config.health.heartbeat_seconds == 120
+
+
+@pytest.mark.parametrize("value", ['"false"', '"true"', "null"])
+def test_health_events_enabled_rejects_non_boolean(tmp_path, value: str) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        f"""
+health:
+  home_assistant_events_enabled: {value}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="health.home_assistant_events_enabled"):
+        load_config(str(config_file))
+
+
+@pytest.mark.parametrize("value", [14, 3601])
+def test_health_heartbeat_seconds_rejects_out_of_range(tmp_path, value: int) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        f"""
+health:
+  heartbeat_seconds: {value}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="health.heartbeat_seconds"):
         load_config(str(config_file))
 
 

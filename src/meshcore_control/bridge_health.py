@@ -5,6 +5,7 @@ import logging
 import os
 import tempfile
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -62,6 +63,61 @@ class BridgeHealthSnapshot:
         )
         return "degraded" if degraded else "ok"
 
+    def event_payload(self, *, channel_index: int) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "version": self.version,
+            "uptime_seconds": self.uptime_seconds,
+            "meshcore": self.meshcore_transport_state,
+            "telegram": _telegram_state(self),
+            "channel": channel_index,
+            "forwarding": {
+                "telegram_to_meshcore": self.forward_telegram_to_meshcore,
+                "meshcore_to_telegram": self.forward_meshcore_to_telegram,
+                "confirmation": self.forward_confirmation_enabled,
+            },
+            "database": {
+                "audit": self.audit_db_health,
+                "telegram": self.telegram_db_health,
+            },
+            "counters": {
+                "tg_to_mc_success": self.tg_to_mc_success,
+                "tg_to_mc_failed": self.tg_to_mc_failed,
+                "mc_to_tg_success": self.mc_to_tg_success,
+                "mc_to_tg_failed": self.mc_to_tg_failed,
+                "commands_processed": self.commands_processed,
+            },
+            "last_activity": {
+                "telegram_to_meshcore": _optional_rfc3339(self.last_tg_to_mc),
+                "meshcore_to_telegram": _optional_rfc3339(self.last_mc_to_tg),
+            },
+            "last_error": {
+                "timestamp": _optional_rfc3339(self.last_failure),
+                "reason": self.last_failure_reason,
+            },
+        }
+
+    def event_fingerprint(self, *, channel_index: int) -> str:
+        payload = self.event_payload(channel_index=channel_index)
+        payload.pop("uptime_seconds", None)
+        return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+    def critical_transition_from(self, previous: BridgeHealthSnapshot | None) -> bool:
+        if previous is None:
+            return True
+        if self.status != previous.status:
+            return True
+        if (
+            self.meshcore_transport_state == "disconnected"
+            and previous.meshcore_transport_state != "disconnected"
+        ):
+            return True
+        if self.telegram_polling_state in {"degraded", "disconnected"} and (
+            self.telegram_polling_state != previous.telegram_polling_state
+        ):
+            return True
+        return self.last_failure != previous.last_failure
+
 
 @dataclass(slots=True)
 class BridgeHealthState:
@@ -87,6 +143,11 @@ class BridgeHealthState:
     _commands_processed: int = 0
     _audit_db_health: str = "ok"
     _telegram_db_health: str = "ok"
+    _change_callback: Callable[[bool], None] | None = field(default=None, init=False, repr=False)
+
+    def set_change_callback(self, callback: Callable[[bool], None] | None) -> None:
+        with self._lock:
+            self._change_callback = callback
 
     def configure(
         self,
@@ -96,33 +157,38 @@ class BridgeHealthState:
         forward_meshcore_to_telegram: bool,
         forward_confirmation_enabled: bool,
     ) -> None:
+        previous = self.snapshot()
         with self._lock:
             self._telegram_enabled = telegram_enabled
             self._telegram_polling_state = "disconnected" if telegram_enabled else "disabled"
             self._forward_telegram_to_meshcore = forward_telegram_to_meshcore
             self._forward_meshcore_to_telegram = forward_meshcore_to_telegram
             self._forward_confirmation_enabled = forward_confirmation_enabled
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def set_meshcore_connected(self, connected: bool) -> None:
+        previous = self.snapshot()
         with self._lock:
             self._meshcore_transport_state = "connected" if connected else "disconnected"
             self._ha_websocket_state = "connected" if connected else "disconnected"
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def set_telegram_polling(self, state: str) -> None:
         if state not in {"disabled", "connected", "degraded", "disconnected"}:
             state = "degraded"
+        previous = self.snapshot()
         with self._lock:
             self._telegram_polling_state = state
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def record_command_processed(self) -> None:
+        previous = self.snapshot()
         with self._lock:
             self._commands_processed += 1
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def record_tg_to_mc(self, *, success: bool, reason: str = "none") -> None:
+        previous = self.snapshot()
         with self._lock:
             if success:
                 self._tg_to_mc_success += 1
@@ -130,9 +196,10 @@ class BridgeHealthState:
             else:
                 self._tg_to_mc_failed += 1
                 self._record_failure_locked(reason)
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def record_mc_to_tg(self, *, success: bool, reason: str = "none") -> None:
+        previous = self.snapshot()
         with self._lock:
             if success:
                 self._mc_to_tg_success += 1
@@ -140,7 +207,7 @@ class BridgeHealthState:
             else:
                 self._mc_to_tg_failed += 1
                 self._record_failure_locked(reason)
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def set_audit_db_health(self, state: str, *, reason: str | None = None) -> None:
         self._set_db_health("audit", state, reason=reason)
@@ -149,9 +216,10 @@ class BridgeHealthState:
         self._set_db_health("telegram", state, reason=reason)
 
     def record_failure(self, reason: str) -> None:
+        previous = self.snapshot()
         with self._lock:
             self._record_failure_locked(reason)
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def snapshot(self) -> BridgeHealthSnapshot:
         with self._lock:
@@ -246,6 +314,7 @@ class BridgeHealthState:
     def _set_db_health(self, db_name: str, state: str, *, reason: str | None) -> None:
         if state not in {"ok", "degraded"}:
             state = "degraded"
+        previous = self.snapshot()
         with self._lock:
             if db_name == "audit":
                 self._audit_db_health = state
@@ -253,11 +322,21 @@ class BridgeHealthState:
                 self._telegram_db_health = state
             if state == "degraded":
                 self._record_failure_locked(reason or "storage_error")
-        self.write_healthcheck()
+        self._after_change(previous)
 
     def _record_failure_locked(self, reason: str) -> None:
         self._last_failure = datetime.now(UTC)
         self._last_failure_reason = _safe_reason(reason)
+
+    def _after_change(self, previous: BridgeHealthSnapshot | None) -> None:
+        self.write_healthcheck()
+        callback: Callable[[bool], None] | None
+        snapshot = self.snapshot()
+        critical = snapshot.critical_transition_from(previous)
+        with self._lock:
+            callback = self._change_callback
+        if callback is not None:
+            callback(critical)
 
 
 def render_bridge_status(snapshot: BridgeHealthSnapshot, *, compact: bool = False) -> str:
@@ -296,11 +375,24 @@ def render_bridge_status_for_channel(
     *,
     channel_index: int,
     compact: bool = False,
+    health_events_enabled: bool | None = None,
+    heartbeat_seconds: int | None = None,
 ) -> str:
-    return render_bridge_status(snapshot, compact=compact).replace(
+    text = render_bridge_status(snapshot, compact=compact).replace(
         "{channel}",
         str(channel_index),
     ).replace("CH:?", f"CH:{channel_index}")
+    if health_events_enabled is None or heartbeat_seconds is None:
+        return text
+    if compact:
+        return f"{text}\nHAE:{_on_off(health_events_enabled)} HB:{heartbeat_seconds}"
+    return "\n".join(
+        [
+            text,
+            f"HA events: {_on_off(health_events_enabled)}",
+            f"Heartbeat: {heartbeat_seconds}s",
+        ]
+    )
 
 
 def _telegram_state(snapshot: BridgeHealthSnapshot) -> str:

@@ -155,3 +155,39 @@ def test_websocket_event_listener_reconnects_after_real_close() -> None:
         assert state["subscriptions"] == 2
 
     asyncio.run(scenario())
+
+
+def test_websocket_fire_event_uses_homeassistant_command() -> None:
+    async def scenario() -> None:
+        import websockets
+
+        received: dict[str, Any] = {}
+
+        async def handler(websocket: Any, *_args: object) -> None:
+            await websocket.send(json.dumps({"type": "auth_required"}))
+            await websocket.recv()
+            await websocket.send(json.dumps({"type": "auth_ok"}))
+            command = json.loads(await websocket.recv())
+            received.update(command)
+            await websocket.send(
+                json.dumps({"id": command["id"], "type": "result", "success": True})
+            )
+
+        async with websockets.serve(handler, "127.0.0.1", 0) as server:
+            port = server.sockets[0].getsockname()[1]
+            client = HomeAssistantWebSocketClient(
+                base_url="http://unused",
+                token="test-token-not-real",
+                timeout_seconds=0.2,
+                websocket_url_override=f"ws://127.0.0.1:{port}",
+            )
+            await client.fire_event(
+                "meshcore_control_bridge_health",
+                {"status": "ok", "version": "0.1.16"},
+            )
+
+        assert received["type"] == "fire_event"
+        assert received["event_type"] == "meshcore_control_bridge_health"
+        assert received["event_data"] == {"status": "ok", "version": "0.1.16"}
+
+    asyncio.run(scenario())

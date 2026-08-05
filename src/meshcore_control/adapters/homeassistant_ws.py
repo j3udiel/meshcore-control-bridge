@@ -153,6 +153,15 @@ class HomeAssistantWebSocketClient:
             return [dict(item) for item in result if isinstance(item, dict)]
         return []
 
+    async def fire_event(self, event_type: str, event_data: dict[str, Any]) -> None:
+        await self._simple_command(
+            {
+                "type": "fire_event",
+                "event_type": event_type,
+                "event_data": event_data,
+            }
+        )
+
     async def _simple_command(self, command: dict[str, Any]) -> Any:
         async for websocket in self._connect_loop():
             await self._authenticate(websocket)
