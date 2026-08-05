@@ -25,6 +25,7 @@ SUPERVISOR_WEBSOCKET_URL = "ws://supervisor/core/websocket"
 APP_OPTIONS_PATH = "/data/options.json"
 APP_DATABASE_PATH = "/data/audit.db"
 APP_HEALTHCHECK_PATH = "/data/health.json"
+_MISSING = object()
 
 
 def unidentified_testing_sender_id(channel_index: int) -> str:
@@ -126,11 +127,15 @@ class HomeAssistantAppOptions:
             raise ValueError("log_level must be one of debug, info, warning, error")
 
         rate_limit_data = _mapping(payload.get("rate_limit", {}), "rate_limit")
+        allow_unidentified_readonly_testing = bool(
+            payload.get("allow_unidentified_readonly_testing", False)
+        )
+        authorized_senders_value = payload.get("authorized_senders", _MISSING)
         options = cls(
             channel_index=channel_index,
             meshcore_entry_id=str(payload.get("meshcore_entry_id", "") or ""),
             command_prefix=str(payload.get("command_prefix", "!") or "!"),
-            authorized_senders=_parse_authorized_senders(payload.get("authorized_senders", [])),
+            authorized_senders=_parse_authorized_senders(authorized_senders_value),
             status_entities=_parse_status_entities(payload.get("status_entities", [])),
             weather_status=_parse_weather_status(payload.get("weather_status", {})),
             telegram=_parse_telegram(payload.get("telegram", {})),
@@ -142,15 +147,18 @@ class HomeAssistantAppOptions:
                 ),
             ),
             log_level=log_level,
-            allow_unidentified_readonly_testing=bool(
-                payload.get("allow_unidentified_readonly_testing", False)
-            ),
+            allow_unidentified_readonly_testing=allow_unidentified_readonly_testing,
         )
         if options.rate_limit.commands < 1:
             raise ValueError("rate_limit.commands must be positive")
         if options.rate_limit.window_seconds < 1:
             raise ValueError("rate_limit.window_seconds must be positive")
         if not options.authorized_senders and not options.allow_unidentified_readonly_testing:
+            if authorized_senders_value is _MISSING:
+                raise ValueError(
+                    "authorized_senders is missing; configure at least one MeshCore "
+                    "authorized sender or enable unidentified readonly testing temporarily"
+                )
             raise ValueError("at least one authorized sender is required")
         return options
 
@@ -238,6 +246,8 @@ def load_homeassistant_app_config(
 
 
 def _parse_authorized_senders(value: object) -> tuple[AppAuthorizedSender, ...]:
+    if value is _MISSING:
+        return ()
     if not isinstance(value, list):
         raise ValueError("authorized_senders must be a list")
     senders: list[AppAuthorizedSender] = []
