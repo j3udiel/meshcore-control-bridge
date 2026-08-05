@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Protocol
 
 from meshcore_control.auth.roles import Role
@@ -42,29 +43,26 @@ class BridgeService:
         self.rate_limiter = rate_limiter or RateLimiter()
         self.channel_index = channel_index
         self.normal_text_forwarder = normal_text_forwarder
+        self._closed = False
 
     async def process_message(self, message: InboundMessage) -> OutboundMessage | None:
-        audit_trail = self.audit_flow.message_received(message) if self.audit_flow else None
+        audit_trail = self._audit_message_received(message)
         if message.channel_index != self.channel_index:
             logger.info("Message ignored reason=wrong_channel channel=%s", message.channel_index)
-            if self.audit_flow is not None and audit_trail is not None:
-                self.audit_flow.message_ignored(audit_trail, reason="wrong_channel")
+            self._audit_message_ignored(audit_trail, reason="wrong_channel")
             return None
         if not self.router.authorizer.allows_room(message):
             room_id = message.source_room.room_id if message.source_room is not None else "unknown"
             logger.info("Message ignored reason=room_not_allowed room=%s", room_id)
-            if self.audit_flow is not None and audit_trail is not None:
-                self.audit_flow.message_ignored(audit_trail, reason="room_not_allowed")
+            self._audit_message_ignored(audit_trail, reason="room_not_allowed")
             return None
         if self.deduplicator.seen_or_store(message):
             logger.info("Message ignored reason=duplicate channel=%s", message.channel_index)
-            if self.audit_flow is not None and audit_trail is not None:
-                self.audit_flow.message_ignored(audit_trail, reason="duplicate")
+            self._audit_message_ignored(audit_trail, reason="duplicate")
             return None
         if not self.rate_limiter.allow(message.sender_id):
             logger.warning("Message rejected reason=rate_limited channel=%s", message.channel_index)
-            if self.audit_flow is not None and audit_trail is not None:
-                audit_trail = self.audit_flow.message_ignored(audit_trail, reason="rate_limited")
+            audit_trail = self._audit_message_ignored(audit_trail, reason="rate_limited")
             outbound = OutboundMessage(
                 destination=message.sender_id,
                 channel_index=self.channel_index,
@@ -75,11 +73,9 @@ class BridgeService:
             try:
                 await self.transport.send(outbound)
             except Exception:
-                if self.audit_flow is not None and audit_trail is not None:
-                    self.audit_flow.response_failed(audit_trail)
+                self._audit_response_failed(audit_trail)
                 raise
-            if self.audit_flow is not None and audit_trail is not None:
-                self.audit_flow.response_sent(audit_trail, outbound)
+            self._audit_response_sent(audit_trail, outbound)
             return outbound
         response_text = await self.router.handle(message, audit_trail=audit_trail)
         if response_text is None:
@@ -89,11 +85,7 @@ class BridgeService:
                         "Message ignored reason=sender_not_registered channel=%s",
                         message.channel_index,
                     )
-                    if self.audit_flow is not None and audit_trail is not None:
-                        self.audit_flow.message_ignored(
-                            audit_trail,
-                            reason="sender_not_registered",
-                        )
+                    self._audit_message_ignored(audit_trail, reason="sender_not_registered")
                     return None
                 handled = await self.normal_text_forwarder.forward_normal_text(
                     message,
@@ -101,8 +93,7 @@ class BridgeService:
                 )
                 if handled:
                     return None
-            if self.audit_flow is not None and audit_trail is not None:
-                self.audit_flow.message_ignored(audit_trail, reason="not_a_command")
+            self._audit_message_ignored(audit_trail, reason="not_a_command")
             return None
         outbound = OutboundMessage(
             destination=message.sender_id,
@@ -114,21 +105,104 @@ class BridgeService:
         try:
             await self.transport.send(outbound)
         except Exception:
-            if self.audit_flow is not None and audit_trail is not None:
-                self.audit_flow.response_failed(audit_trail)
+            self._audit_response_failed(audit_trail)
             raise
-        if self.audit_flow is not None and audit_trail is not None:
-            self.audit_flow.response_sent(audit_trail, outbound)
+        self._audit_response_sent(audit_trail, outbound)
         logger.info("Response sent channel=%s", outbound.channel_index)
         return outbound
 
     async def run_forever(self) -> None:
-        while True:
-            message = await self.transport.receive()
-            await self.process_message(message)
+        try:
+            while True:
+                message = await self.transport.receive()
+                await self.process_message(message)
+        finally:
+            await self.close()
 
     async def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         await self.transport.close()
+
+    def _audit_message_received(self, message: InboundMessage) -> AuditTrail | None:
+        if self.audit_flow is None:
+            return None
+        try:
+            return self.audit_flow.message_received(message)
+        except sqlite3.Error as exc:
+            logger.warning(
+                "Audit degraded stage=message_received error=%s",
+                _sqlite_error_reason(exc),
+            )
+            return self.audit_flow.degraded_trail(message)
+        except Exception as exc:
+            logger.warning(
+                "Audit degraded stage=message_received error=%s",
+                exc.__class__.__name__,
+            )
+            return self.audit_flow.degraded_trail(message)
+
+    def _audit_message_ignored(
+        self,
+        audit_trail: AuditTrail | None,
+        *,
+        reason: str,
+    ) -> AuditTrail | None:
+        if self.audit_flow is None or audit_trail is None:
+            return audit_trail
+        try:
+            return self.audit_flow.message_ignored(audit_trail, reason=reason)
+        except sqlite3.Error as exc:
+            logger.warning(
+                "Audit degraded stage=message_ignored error=%s",
+                _sqlite_error_reason(exc),
+            )
+            return audit_trail
+        except Exception as exc:
+            logger.warning(
+                "Audit degraded stage=message_ignored error=%s",
+                exc.__class__.__name__,
+            )
+            return audit_trail
+
+    def _audit_response_sent(
+        self,
+        audit_trail: AuditTrail | None,
+        outbound: OutboundMessage,
+    ) -> AuditTrail | None:
+        if self.audit_flow is None or audit_trail is None:
+            return audit_trail
+        try:
+            return self.audit_flow.response_sent(audit_trail, outbound)
+        except sqlite3.Error as exc:
+            logger.warning("Audit degraded stage=response_sent error=%s", _sqlite_error_reason(exc))
+            return audit_trail
+        except Exception as exc:
+            logger.warning("Audit degraded stage=response_sent error=%s", exc.__class__.__name__)
+            return audit_trail
+
+    def _audit_response_failed(self, audit_trail: AuditTrail | None) -> AuditTrail | None:
+        if self.audit_flow is None or audit_trail is None:
+            return audit_trail
+        try:
+            return self.audit_flow.response_failed(audit_trail)
+        except sqlite3.Error as exc:
+            logger.warning(
+                "Audit degraded stage=response_failed error=%s",
+                _sqlite_error_reason(exc),
+            )
+            return audit_trail
+        except Exception as exc:
+            logger.warning("Audit degraded stage=response_failed error=%s", exc.__class__.__name__)
+            return audit_trail
+
+
+def _sqlite_error_reason(exc: sqlite3.Error) -> str:
+    message = str(exc).lower()
+    if "locked" in message:
+        return "database_locked"
+    return exc.__class__.__name__
 
 
 def _trim_lora_response(text: str, max_chars: int = 480) -> str:

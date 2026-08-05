@@ -432,12 +432,14 @@ def test_rollback_when_legacy_command_write_fails(tmp_path, monkeypatch) -> None
 
     monkeypatch.setattr(built.service.router.audit, "insert_command", fail_insert_command)
 
-    with pytest.raises(sqlite3.OperationalError):
-        asyncio.run(built.service.process_message(message()))
+    outbound = asyncio.run(built.service.process_message(message()))
 
+    assert outbound is not None
+    assert outbound.text == "pong"
     assert "command.execution" not in event_types(built.connection)
     assert built.service.router.audit.count_commands() == 0
     assert legacy_snapshot(built.connection)["inbound_messages"] == []
+    assert not built.connection.in_transaction
 
 
 def test_rollback_when_legacy_inbound_write_fails(tmp_path, monkeypatch) -> None:
@@ -448,11 +450,13 @@ def test_rollback_when_legacy_inbound_write_fails(tmp_path, monkeypatch) -> None
 
     monkeypatch.setattr(built.service.router.audit, "insert_inbound_message", fail_insert_inbound)
 
-    with pytest.raises(sqlite3.OperationalError):
-        asyncio.run(built.service.process_message(message()))
+    outbound = asyncio.run(built.service.process_message(message()))
 
+    assert outbound is not None
+    assert outbound.text == "pong"
     assert built.service.router.audit.count_commands() == 0
     assert "command.execution" not in event_types(built.connection)
+    assert not built.connection.in_transaction
 
 
 def test_rollback_when_normalized_command_write_fails(tmp_path, monkeypatch) -> None:
@@ -467,12 +471,14 @@ def test_rollback_when_normalized_command_write_fails(tmp_path, monkeypatch) -> 
 
     monkeypatch.setattr(built.audit_flow.normalized, "insert_event", fail_command_execution)
 
-    with pytest.raises(sqlite3.OperationalError):
-        asyncio.run(built.service.process_message(message()))
+    outbound = asyncio.run(built.service.process_message(message()))
 
+    assert outbound is not None
+    assert outbound.text == "pong"
     assert built.service.router.audit.count_commands() == 0
     assert "command.execution" not in event_types(built.connection)
     assert legacy_snapshot(built.connection)["inbound_messages"] == []
+    assert not built.connection.in_transaction
 
 
 def test_standalone_legacy_without_key_keeps_legacy_audit_only(tmp_path, caplog) -> None:

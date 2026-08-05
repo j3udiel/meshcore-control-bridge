@@ -114,6 +114,14 @@ class AuditFlow:
             correlation_id=correlation_id,
         )
 
+    def degraded_trail(self, message: InboundMessage) -> AuditTrail:
+        return AuditTrail(
+            message=message,
+            received_event_id=None,
+            latest_event_id=None,
+            correlation_id=_message_correlation_id(message),
+        )
+
     def message_ignored(self, trail: AuditTrail, *, reason: str) -> AuditTrail:
         if reason not in IGNORE_REASONS:
             raise ValueError("invalid audit ignore reason")

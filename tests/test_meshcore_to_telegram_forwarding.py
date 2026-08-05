@@ -234,6 +234,45 @@ async def test_meshcore_normal_text_forwards_to_telegram(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_meshcore_forwarding_continues_when_message_received_audit_is_locked(
+    tmp_path: Path,
+) -> None:
+    built = _build_bridge(tmp_path)
+
+    def locked_message_received(message: InboundMessage) -> object:
+        raise sqlite3.OperationalError("database is locked")
+
+    built.service.audit_flow.message_received = locked_message_received  # type: ignore[method-assign]
+
+    outbound = await built.service.process_message(_message("texto normal"))
+
+    assert outbound is None
+    assert built.telegram_client.send_message_calls == [
+        {"chat_id": "1001", "text": "MC: texto normal"}
+    ]
+    assert not built.connection.in_transaction
+
+
+@pytest.mark.asyncio
+async def test_meshcore_command_response_continues_when_command_audit_is_locked(
+    tmp_path: Path,
+) -> None:
+    built = _build_bridge(tmp_path)
+
+    def locked_command_execution(*args: object, **kwargs: object) -> object:
+        raise sqlite3.OperationalError("database is locked")
+
+    built.service.audit_flow.command_execution = locked_command_execution  # type: ignore[method-assign]
+
+    outbound = await built.service.process_message(_message("!ping"))
+
+    assert outbound is not None
+    assert outbound.text == "pong"
+    assert built.meshcore_transport.sent[0].text == "pong"
+    assert not built.connection.in_transaction
+
+
+@pytest.mark.asyncio
 async def test_pending_echo_lock_does_not_crash_or_echo_to_telegram(tmp_path: Path) -> None:
     database_path = tmp_path / "audit.db"
     locker = connect_database(str(database_path))

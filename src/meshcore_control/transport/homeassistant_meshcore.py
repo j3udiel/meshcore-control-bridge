@@ -83,6 +83,9 @@ class HomeAssistantMeshCoreTransport:
                 self._event_iterator = events.__aiter__()
             try:
                 event = await self._event_iterator.__anext__()
+            except asyncio.CancelledError:
+                self._event_iterator = None
+                raise
             except StopAsyncIteration:
                 self._event_iterator = None
                 await asyncio.sleep(1)

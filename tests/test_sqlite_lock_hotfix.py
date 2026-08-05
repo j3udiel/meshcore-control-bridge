@@ -21,6 +21,68 @@ def test_connect_database_enables_wal_busy_timeout_and_foreign_keys(tmp_path: Pa
     assert connection.execute("PRAGMA busy_timeout").fetchone()[0] >= 5000
     assert connection.execute("PRAGMA foreign_keys").fetchone()[0] == 1
     assert connection.execute("PRAGMA synchronous").fetchone()[0] == 1
+    assert connection.isolation_level is None
+    assert not connection.in_transaction
+
+
+def test_write_transaction_supports_nested_savepoint(tmp_path: Path) -> None:
+    connection = connect_database(str(tmp_path / "audit.db"))
+    states: list[bool] = []
+
+    def outer_write() -> None:
+        states.append(connection.in_transaction)
+        connection.execute(
+            "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+            ("outer", "1"),
+        )
+
+        def inner_write() -> None:
+            states.append(connection.in_transaction)
+            connection.execute(
+                "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+                ("inner", "1"),
+            )
+
+        write_transaction(connection, inner_write)
+        states.append(connection.in_transaction)
+
+    write_transaction(connection, outer_write)
+
+    assert states == [True, True, True]
+    assert not connection.in_transaction
+    assert {
+        row["key"] for row in connection.execute("SELECT key FROM telegram_state").fetchall()
+    } == {"outer", "inner"}
+
+
+def test_nested_savepoint_rollback_preserves_outer_transaction(tmp_path: Path) -> None:
+    connection = connect_database(str(tmp_path / "audit.db"))
+
+    def outer_write() -> None:
+        connection.execute(
+            "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+            ("outer-before", "1"),
+        )
+        with pytest.raises(RuntimeError):
+            write_transaction(connection, inner_write)
+        connection.execute(
+            "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+            ("outer-after", "1"),
+        )
+
+    def inner_write() -> None:
+        connection.execute(
+            "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+            ("inner", "1"),
+        )
+        raise RuntimeError("inner failed")
+
+    write_transaction(connection, outer_write)
+
+    assert not connection.in_transaction
+    assert {
+        row["key"] for row in connection.execute("SELECT key FROM telegram_state").fetchall()
+    } == {"outer-before", "outer-after"}
 
 
 def test_telegram_bridge_mutations_commit_immediately(tmp_path: Path) -> None:
@@ -120,6 +182,61 @@ def test_write_transaction_rolls_back_partial_write(tmp_path: Path) -> None:
     assert not connection.in_transaction
 
 
+def test_repeated_operations_after_rollback_leave_connection_usable(tmp_path: Path) -> None:
+    connection = connect_database(str(tmp_path / "audit.db"))
+
+    def failing_write() -> None:
+        connection.execute(
+            "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+            ("failed", "1"),
+        )
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        write_transaction(connection, failing_write)
+
+    write_transaction(
+        connection,
+        lambda: connection.execute(
+            "INSERT INTO telegram_state (key, value) VALUES (?, ?)",
+            ("ok", "1"),
+        ),
+    )
+
+    assert not connection.in_transaction
+    assert connection.execute("SELECT key FROM telegram_state").fetchone()["key"] == "ok"
+
+
+def test_many_connections_write_without_unrecovered_locks(tmp_path: Path) -> None:
+    database_path = tmp_path / "audit.db"
+    connect_database(str(database_path)).close()
+
+    def write_many(worker: int) -> int:
+        connection = connect_database(str(database_path))
+        for index in range(75):
+            write_transaction(
+                connection,
+                lambda worker=worker, index=index: connection.execute(
+                    """
+                    INSERT INTO telegram_state (key, value)
+                    VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (f"{worker}:{index}", str(index)),
+                ),
+            )
+            assert not connection.in_transaction
+        connection.close()
+        return 75
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        assert sum(executor.map(write_many, range(4))) == 300
+
+    connection = connect_database(str(database_path))
+    assert connection.execute("SELECT COUNT(*) FROM telegram_state").fetchone()[0] == 300
+    assert not connection.in_transaction
+
+
 @pytest.mark.asyncio
 async def test_run_services_cancels_sibling_and_closes_without_secondary_aclose_error() -> None:
     class CrashingBridge:
@@ -154,3 +271,43 @@ async def test_run_services_cancels_sibling_and_closes_without_secondary_aclose_
     assert bridge.closed
     assert telegram.stopped
     assert telegram.cancelled
+
+
+@pytest.mark.asyncio
+async def test_run_services_waits_for_bridge_receive_to_unwind_before_final_close() -> None:
+    class WaitingBridge:
+        closed = False
+        receive_active = False
+        close_while_receiving = False
+
+        async def run_forever(self) -> None:
+            self.receive_active = True
+            try:
+                await asyncio.Event().wait()
+            finally:
+                self.receive_active = False
+                await self.close()
+
+        async def close(self) -> None:
+            if self.receive_active:
+                self.close_while_receiving = True
+            self.closed = True
+
+    class CrashingTelegram:
+        stopped = False
+
+        async def run(self) -> None:
+            raise RuntimeError("telegram failure")
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    bridge = WaitingBridge()
+    telegram = CrashingTelegram()
+
+    with pytest.raises(RuntimeError, match="telegram failure"):
+        await _run_services(bridge, telegram)  # type: ignore[arg-type]
+
+    assert bridge.closed
+    assert telegram.stopped
+    assert not bridge.close_while_receiving

@@ -217,14 +217,12 @@ async def _run_services(
     telegram_service: TelegramFoundationService | None,
 ) -> None:
     if telegram_service is None:
-        try:
-            await bridge_service.run_forever()
-        finally:
-            await bridge_service.close()
+        await bridge_service.run_forever()
         return
     bridge_task = asyncio.create_task(bridge_service.run_forever(), name="bridge-service")
     telegram_task = asyncio.create_task(telegram_service.run(), name="telegram-foundation")
     tasks = {bridge_task, telegram_task}
+    first_exception: BaseException | None = None
     try:
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
         first_exception = _first_task_exception(done)
@@ -233,12 +231,16 @@ async def _run_services(
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
-        if first_exception is not None:
-            raise first_exception
     finally:
         telegram_service.stop()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         with suppress(Exception):
             await bridge_service.close()
+    if first_exception is not None:
+        raise first_exception
 
 
 def _first_task_exception(tasks: set[asyncio.Task[None]]) -> BaseException | None:

@@ -176,7 +176,49 @@ def test_homeassistant_app_telegram_rejects_invalid_inbound_forwarding_prefix() 
 
 def test_homeassistant_app_requires_authorized_sender_by_default() -> None:
     with pytest.raises(ValueError, match="authorized sender"):
+        HomeAssistantAppOptions.from_mapping({"channel_index": 1, "authorized_senders": []})
+
+
+def test_homeassistant_app_reports_missing_authorized_senders_as_migration_issue() -> None:
+    with pytest.raises(ValueError, match="authorized_senders is missing"):
         HomeAssistantAppOptions.from_mapping({"channel_index": 1})
+
+
+def test_homeassistant_app_rejects_null_authorized_senders() -> None:
+    with pytest.raises(ValueError, match="authorized_senders must be a list"):
+        HomeAssistantAppOptions.from_mapping({"channel_index": 1, "authorized_senders": None})
+
+
+def test_homeassistant_app_loads_valid_authorized_sender() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "authorized_senders": [
+                {"pubkey_prefix": "abcdef123456", "name": "admin", "role": "readonly"}
+            ],
+        }
+    )
+
+    assert options.authorized_senders[0].pubkey_prefix == "abcdef123456"
+    assert options.authorized_senders[0].role is Role.readonly
+
+
+def test_homeassistant_app_options_json_round_trip_preserves_authorized_senders(tmp_path) -> None:
+    options_file = tmp_path / "options.json"
+    payload = {
+        "channel_index": 1,
+        "authorized_senders": [
+            {"pubkey_prefix": "abcdef123456", "name": "admin", "role": "operator"}
+        ],
+        "allow_unidentified_readonly_testing": False,
+    }
+    options_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    options = HomeAssistantAppOptions.from_file(str(options_file))
+
+    serialized = json.loads(options_file.read_text(encoding="utf-8"))
+    assert serialized["authorized_senders"] == payload["authorized_senders"]
+    assert options.authorized_senders[0].role is Role.operator
 
 
 def test_homeassistant_app_supervisor_runtime_requires_token(monkeypatch) -> None:
@@ -214,6 +256,127 @@ def test_homeassistant_app_testing_mode_adds_readonly_synthetic_sender() -> None
     user = config.users[unidentified_testing_sender_id(1)]
     assert user.role is Role.readonly
     assert config.meshcore.require_stable_sender is False
+
+
+def test_homeassistant_app_testing_mode_can_start_with_missing_authorized_senders() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "allow_unidentified_readonly_testing": True,
+        }
+    )
+
+    assert options.authorized_senders == ()
+    assert options.allow_unidentified_readonly_testing is True
+
+
+def test_homeassistant_app_testing_mode_disabled_rejects_empty_authorized_senders() -> None:
+    with pytest.raises(ValueError, match="at least one authorized sender"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "authorized_senders": [],
+                "allow_unidentified_readonly_testing": False,
+            }
+        )
+
+
+def test_homeassistant_app_upgrade_from_0_1_11_options_keeps_authorized_senders() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "meshcore_entry_id": "",
+            "command_prefix": "!",
+            "authorized_senders": [
+                {"pubkey_prefix": "abcdef123456", "name": "admin", "role": "admin"}
+            ],
+            "status_entities": [],
+            "weather_status": {
+                "temperature_entity": "",
+                "humidity_entity": "",
+                "label": "Exterior",
+            },
+            "telegram": {
+                "enabled": True,
+                "bot_token_import": "",
+                "bot_token_file": "/data/telegram.bot_token",
+                "allowed_private_chat_id": "1001",
+                "allowed_user_id": "2002",
+                "meshcore_channel_index": 1,
+                "forward_meshcore_to_telegram": True,
+                "forward_telegram_to_meshcore": True,
+                "command_prefix": "!",
+                "max_meshcore_message_length": 180,
+                "message_prefix": "TG: ",
+                "forwarding_rate_limit": {"messages": 5, "window_seconds": 60},
+            },
+            "rate_limit": {"commands": 5, "window_seconds": 60},
+            "log_level": "info",
+            "allow_unidentified_readonly_testing": False,
+        }
+    )
+
+    assert options.authorized_senders[0].pubkey_prefix == "abcdef123456"
+    assert options.telegram.enabled is True
+    assert options.telegram.max_telegram_message_length == 3900
+
+
+def test_homeassistant_app_upgrade_from_0_1_12_options_keeps_authorized_senders() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "authorized_senders": [
+                {"pubkey_prefix": "abcdef123456", "name": "admin", "role": "readonly"}
+            ],
+            "telegram": {
+                "enabled": True,
+                "bot_token_import": "",
+                "bot_token_file": "/data/telegram.bot_token",
+                "allowed_private_chat_id": "1001",
+                "allowed_user_id": "2002",
+                "meshcore_channel_index": 1,
+                "forward_meshcore_to_telegram": True,
+                "forward_telegram_to_meshcore": True,
+                "command_prefix": "!",
+                "max_meshcore_message_length": 180,
+                "max_telegram_message_length": 3900,
+                "message_prefix": "TG: ",
+                "meshcore_to_telegram_prefix": "MC: ",
+                "forwarding_rate_limit": {"messages": 5, "window_seconds": 60},
+                "inbound_forwarding_rate_limit": {"messages": 20, "window_seconds": 60},
+            },
+        }
+    )
+
+    assert options.authorized_senders[0].role is Role.readonly
+    assert options.telegram.allowed_private_chat_id == "1001"
+
+
+def test_homeassistant_app_telegram_does_not_replace_meshcore_authorized_senders() -> None:
+    runtime = HomeAssistantRuntime(
+        rest_base_url=SUPERVISOR_REST_BASE_URL,
+        websocket_url=SUPERVISOR_WEBSOCKET_URL,
+        token="supervisor-token-not-real",
+    )
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "authorized_senders": [
+                {"pubkey_prefix": "abcdef123456", "name": "admin", "role": "readonly"}
+            ],
+            "telegram": {
+                "enabled": True,
+                "allowed_private_chat_id": "1001",
+                "allowed_user_id": "2002",
+            },
+        }
+    )
+
+    config = options.to_app_config(runtime)
+
+    assert "meshcore-pubkey-prefix:abcdef123456" in config.users
+    assert "telegram-user:authorized" not in config.users
+    assert config.telegram.enabled is True
 
 
 def test_homeassistant_app_healthcheck_accepts_recent_file(tmp_path, monkeypatch) -> None:
