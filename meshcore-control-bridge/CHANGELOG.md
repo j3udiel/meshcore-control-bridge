@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.1.12
+
+- Fix concurrent SQLite writer failures during Telegram bridge forwarding.
+- Prevent `database is locked` errors from crashing the Home Assistant App.
+- Make pending bridge record creation and echo consumption resilient.
+- Apply consistent WAL, busy timeout, and short transaction handling.
+- Improve service shutdown after task failures.
+- Keep forwarding failures fail-closed without logging raw message text,
+  identifiers, or audit secrets.
+- Keep Telegram and MeshCore commands unchanged.
+- Does not add commands, transports, groups, multimedia, webhooks, write
+  commands, or USB release work.
+
 ## 0.1.11
 
 - Forward normal text from the configured MeshCore channel to the authorized
