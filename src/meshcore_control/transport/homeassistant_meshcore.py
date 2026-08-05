@@ -13,6 +13,7 @@ from meshcore_control.adapters.homeassistant_ws import (
     HomeAssistantEvent,
     HomeAssistantWebSocketClient,
 )
+from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.homeassistant_app import unidentified_testing_sender_id
 from meshcore_control.models import (
     InboundMessage,
@@ -52,8 +53,10 @@ class HomeAssistantMeshCoreTransport:
         *,
         settings: HomeAssistantMeshCoreSettings,
         websocket_client: HomeAssistantWebSocketClient | None = None,
+        bridge_health: BridgeHealthState | None = None,
     ) -> None:
         self.settings = settings
+        self.bridge_health = bridge_health
         self.client = websocket_client or HomeAssistantWebSocketClient(
             base_url=settings.ha_base_url,
             token=settings.ha_token,
@@ -65,6 +68,8 @@ class HomeAssistantMeshCoreTransport:
         self._event_iterator: Any | None = None
         self._resolved_entry_id: str | None = settings.ha_entry_id
         self.client.on_idle = self._mark_subscribed
+        self.client.on_authenticated = self._mark_connected
+        self.client.on_disconnected = self._mark_disconnected
         logger.info("Listening for MeshCore messages on channel %s", settings.channel_index)
         if settings.allow_channel_without_sender:
             logger.warning("Unidentified readonly testing is enabled")
@@ -110,6 +115,8 @@ class HomeAssistantMeshCoreTransport:
                 return_response=False,
             )
         except Exception:
+            if self.bridge_health is not None:
+                self.bridge_health.record_failure("transport_error")
             logger.warning(
                 "MeshCore response service call failed channel=%s service=meshcore.%s",
                 message.channel_index,
@@ -124,6 +131,8 @@ class HomeAssistantMeshCoreTransport:
 
     async def close(self) -> None:
         self._event_iterator = None
+        if self.bridge_health is not None:
+            self.bridge_health.set_meshcore_connected(False)
 
     async def _ensure_entry_id(self) -> None:
         if self._resolved_entry_id:
@@ -239,6 +248,9 @@ class HomeAssistantMeshCoreTransport:
         return f"ha-meshcore:{digest}"
 
     def _mark_subscribed(self) -> None:
+        self._mark_connected()
+        if self.bridge_health is not None:
+            return
         if not self.settings.healthcheck_path:
             return
         payload = {
@@ -250,6 +262,15 @@ class HomeAssistantMeshCoreTransport:
         path = Path(self.settings.healthcheck_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(payload, ensure_ascii=True), encoding="utf-8")
+
+    def _mark_connected(self) -> None:
+        if self.bridge_health is not None:
+            self.bridge_health.set_meshcore_connected(True)
+
+    def _mark_disconnected(self) -> None:
+        if self.bridge_health is not None:
+            self.bridge_health.set_meshcore_connected(False)
+            self.bridge_health.record_failure("websocket_disconnected")
 
 
 def _parse_time(value: str | None) -> datetime | None:

@@ -36,6 +36,8 @@ class HomeAssistantWebSocketClient:
     websocket_url_override: str | None = None
     on_subscribed: Any | None = None
     on_idle: Any | None = None
+    on_authenticated: Any | None = None
+    on_disconnected: Any | None = None
     _message_id: int = field(default=0, init=False)
 
     def websocket_url(self) -> str:
@@ -63,6 +65,8 @@ class HomeAssistantWebSocketClient:
             subscriptions: dict[int, str] = {}
             try:
                 await self._authenticate(websocket)
+                if self.on_authenticated is not None:
+                    self.on_authenticated()
                 logger.info("Home Assistant WebSocket authenticated")
                 for event_type in event_types:
                     command_id = await self._send(
@@ -108,6 +112,8 @@ class HomeAssistantWebSocketClient:
                 logger.info("Home Assistant WebSocket listener cancelled")
                 raise
             except Exception:
+                if self.on_disconnected is not None:
+                    self.on_disconnected()
                 logger.warning("Home Assistant WebSocket disconnected; reconnecting")
                 await asyncio.sleep(1)
                 continue

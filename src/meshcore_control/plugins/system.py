@@ -4,6 +4,7 @@ from typing import Any, Protocol, cast
 
 from meshcore_control.adapters.homeassistant import HomeAssistantStatus
 from meshcore_control.auth.roles import Role
+from meshcore_control.bridge_health import BridgeHealthState, render_bridge_status_for_channel
 from meshcore_control.commands.help import render_help
 from meshcore_control.commands.registry import CommandContext, CommandDefinition, CommandRegistry
 from meshcore_control.config import AppConfig
@@ -71,6 +72,18 @@ def register(registry: CommandRegistry) -> None:
             handler=exterior,
         )
     )
+    registry.register(
+        CommandDefinition(
+            name="bridge",
+            aliases=(),
+            group="system",
+            usage="!bridge",
+            help_text="Muestra estado interno seguro del bridge.",
+            minimum_role=Role.readonly,
+            confirmation_required=False,
+            handler=bridge,
+        )
+    )
 
 
 async def ping(context: CommandContext, args: list[str]) -> str:
@@ -133,6 +146,18 @@ async def exterior(context: CommandContext, args: list[str]) -> str:
         humidity = await _safe_state_value(client, weather.humidity_entity)
         line = f"{line} · Humedad: {humidity}"
     return _fit_exterior_response(line, f"{label}: {temperature}", label)
+
+
+async def bridge(context: CommandContext, args: list[str]) -> str:
+    health = context.services.get("bridge_health")
+    if not isinstance(health, BridgeHealthState):
+        return "Bridge: N/D"
+    compact = context.message.transport != "telegram"
+    return render_bridge_status_for_channel(
+        health.snapshot(),
+        channel_index=context.message.channel_index,
+        compact=compact,
+    )
 
 
 async def _render_ha_status(ha_client: object | None, status: HomeAssistantStatus) -> str:

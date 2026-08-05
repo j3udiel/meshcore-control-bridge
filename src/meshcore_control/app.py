@@ -5,6 +5,7 @@ import sqlite3
 from typing import Protocol
 
 from meshcore_control.auth.roles import Role
+from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.models import InboundMessage, OutboundMessage
 from meshcore_control.security.deduplication import Deduplicator
@@ -35,6 +36,7 @@ class BridgeService:
         rate_limiter: RateLimiter | None = None,
         channel_index: int,
         normal_text_forwarder: NormalTextForwarder | None = None,
+        bridge_health: BridgeHealthState | None = None,
     ) -> None:
         self.transport = transport
         self.router = router
@@ -43,6 +45,7 @@ class BridgeService:
         self.rate_limiter = rate_limiter or RateLimiter()
         self.channel_index = channel_index
         self.normal_text_forwarder = normal_text_forwarder
+        self.bridge_health = bridge_health
         self._closed = False
 
     async def process_message(self, message: InboundMessage) -> OutboundMessage | None:
@@ -131,6 +134,7 @@ class BridgeService:
         try:
             return self.audit_flow.message_received(message)
         except sqlite3.Error as exc:
+            self._mark_audit_degraded(exc)
             logger.warning(
                 "Audit degraded stage=message_received error=%s",
                 _sqlite_error_reason(exc),
@@ -154,6 +158,7 @@ class BridgeService:
         try:
             return self.audit_flow.message_ignored(audit_trail, reason=reason)
         except sqlite3.Error as exc:
+            self._mark_audit_degraded(exc)
             logger.warning(
                 "Audit degraded stage=message_ignored error=%s",
                 _sqlite_error_reason(exc),
@@ -176,6 +181,7 @@ class BridgeService:
         try:
             return self.audit_flow.response_sent(audit_trail, outbound)
         except sqlite3.Error as exc:
+            self._mark_audit_degraded(exc)
             logger.warning("Audit degraded stage=response_sent error=%s", _sqlite_error_reason(exc))
             return audit_trail
         except Exception as exc:
@@ -188,6 +194,7 @@ class BridgeService:
         try:
             return self.audit_flow.response_failed(audit_trail)
         except sqlite3.Error as exc:
+            self._mark_audit_degraded(exc)
             logger.warning(
                 "Audit degraded stage=response_failed error=%s",
                 _sqlite_error_reason(exc),
@@ -196,6 +203,10 @@ class BridgeService:
         except Exception as exc:
             logger.warning("Audit degraded stage=response_failed error=%s", exc.__class__.__name__)
             return audit_trail
+
+    def _mark_audit_degraded(self, exc: sqlite3.Error) -> None:
+        if self.bridge_health is not None:
+            self.bridge_health.set_audit_db_health("degraded", reason=_sqlite_error_reason(exc))
 
 
 def _sqlite_error_reason(exc: sqlite3.Error) -> str:

@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import TelegramConfig
 from meshcore_control.models import InboundMessage, MessageIdentity, OutboundMessage, RoomRef
@@ -75,6 +76,7 @@ class MeshCoreToTelegramForwarder:
         client: TelegramClientProtocol,
         store: TelegramStore,
         normalized_audit: NormalizedAuditRepository | None = None,
+        bridge_health: BridgeHealthState | None = None,
         sleep: SleepCallable = asyncio.sleep,
         backoff_max_seconds: float = 30.0,
     ) -> None:
@@ -82,6 +84,7 @@ class MeshCoreToTelegramForwarder:
         self.client = client
         self.store = store
         self.normalized_audit = normalized_audit
+        self.bridge_health = bridge_health
         self.sleep = sleep
         self.backoff_max_seconds = backoff_max_seconds
         self.rate_limiter = RateLimiter(
@@ -92,6 +95,8 @@ class MeshCoreToTelegramForwarder:
 
     def stop(self) -> None:
         self._stopping = True
+        if self.bridge_health is not None:
+            self.bridge_health.set_telegram_polling("disconnected")
 
     async def forward_normal_text(
         self,
@@ -152,6 +157,7 @@ class MeshCoreToTelegramForwarder:
             )
             _safe_create_bridge_record(
                 self.store,
+                bridge_health=self.bridge_health,
                 correlation_id=_correlation_id(message, audit_trail),
                 destination_transport=TELEGRAM_TRANSPORT,
                 destination_room_id=TELEGRAM_ROOM_ID,
@@ -182,6 +188,7 @@ class MeshCoreToTelegramForwarder:
             )
             _safe_create_bridge_record(
                 self.store,
+                bridge_health=self.bridge_health,
                 correlation_id=_correlation_id(message, audit_trail),
                 destination_transport=TELEGRAM_TRANSPORT,
                 destination_room_id=TELEGRAM_ROOM_ID,
@@ -200,6 +207,8 @@ class MeshCoreToTelegramForwarder:
             raise
         except TelegramRateLimitError as exc:
             await self._sleep_or_stop(min(exc.retry_after, self.backoff_max_seconds))
+            if self.bridge_health is not None:
+                self.bridge_health.record_mc_to_tg(success=False, reason="rate_limited")
             self._record_failed(
                 message=message,
                 audit_trail=audit_trail,
@@ -211,6 +220,8 @@ class MeshCoreToTelegramForwarder:
             logger.warning("MeshCore to Telegram forward failed reason=rate_limited")
             return True
         except TelegramConflictError:
+            if self.bridge_health is not None:
+                self.bridge_health.record_mc_to_tg(success=False, reason="consumer_conflict")
             self._record_failed(
                 message=message,
                 audit_trail=audit_trail,
@@ -222,6 +233,8 @@ class MeshCoreToTelegramForwarder:
             logger.warning("MeshCore to Telegram forward failed reason=consumer_conflict")
             return True
         except (TelegramApiError, httpx.HTTPError, TimeoutError, OSError):
+            if self.bridge_health is not None:
+                self.bridge_health.record_mc_to_tg(success=False, reason="transport_error")
             self._record_failed(
                 message=message,
                 audit_trail=audit_trail,
@@ -248,6 +261,7 @@ class MeshCoreToTelegramForwarder:
         )
         _safe_create_bridge_record(
             self.store,
+            bridge_health=self.bridge_health,
             correlation_id=_correlation_id(message, audit_trail),
             destination_transport=TELEGRAM_TRANSPORT,
             destination_room_id=TELEGRAM_ROOM_ID,
@@ -255,6 +269,8 @@ class MeshCoreToTelegramForwarder:
             size_bytes=size_bytes,
             status="accepted_by_telegram",
         )
+        if self.bridge_health is not None:
+            self.bridge_health.record_mc_to_tg(success=True)
         logger.info("MeshCore message forwarded to Telegram status=accepted_by_telegram")
         return True
 
@@ -273,6 +289,8 @@ class MeshCoreToTelegramForwarder:
                 size_bytes=size_bytes,
             )
         except sqlite3.Error as exc:
+            if self.bridge_health is not None:
+                self.bridge_health.set_telegram_db_health("degraded", reason=_sqlite_reason(exc))
             logger.warning(
                 "Telegram bridge pending echo unavailable reason=%s",
                 _sqlite_reason(exc),
@@ -332,6 +350,7 @@ class MeshCoreToTelegramForwarder:
         )
         _safe_create_bridge_record(
             self.store,
+            bridge_health=self.bridge_health,
             correlation_id=_correlation_id(message, audit_trail),
             destination_transport=TELEGRAM_TRANSPORT,
             destination_room_id=TELEGRAM_ROOM_ID,
@@ -359,6 +378,8 @@ class MeshCoreToTelegramForwarder:
                 causation_event_id=causation_event_id,
             )
         except sqlite3.Error as exc:
+            if self.bridge_health is not None:
+                self.bridge_health.set_audit_db_health("degraded", reason=_sqlite_reason(exc))
             logger.warning("Bridge audit event skipped reason=%s", _sqlite_reason(exc))
             return None
 
@@ -383,6 +404,7 @@ class TelegramFoundationService:
         audit_flow: AuditFlow | None = None,
         meshcore_transport: Transport | None = None,
         normalized_audit: NormalizedAuditRepository | None = None,
+        bridge_health: BridgeHealthState | None = None,
     ) -> None:
         self.config = config
         self.client = client
@@ -395,6 +417,7 @@ class TelegramFoundationService:
         self.audit_flow = audit_flow
         self.meshcore_transport = meshcore_transport
         self.normalized_audit = normalized_audit
+        self.bridge_health = bridge_health
         self.forwarding_rate_limiter = RateLimiter(
             max_commands=config.forwarding_rate_limit.commands,
             window_seconds=config.forwarding_rate_limit.window_seconds,
@@ -403,26 +426,41 @@ class TelegramFoundationService:
 
     async def run(self) -> None:
         logger.info("Telegram foundation enabled")
+        if self.bridge_health is not None:
+            self.bridge_health.set_telegram_polling("disconnected")
         await self.initialize()
         backoff = self.backoff_initial_seconds
         while not self._stopping:
             try:
                 await self.poll_once()
+                if self.bridge_health is not None:
+                    self.bridge_health.set_telegram_polling("connected")
                 backoff = self.backoff_initial_seconds
             except TelegramRateLimitError as exc:
+                if self.bridge_health is not None:
+                    self.bridge_health.set_telegram_polling("degraded")
+                    self.bridge_health.record_failure("rate_limited")
                 delay = min(exc.retry_after, self.backoff_max_seconds)
                 logger.warning("Telegram polling delayed reason=rate_limited")
                 await self._sleep_or_stop(delay)
             except TelegramConflictError:
+                if self.bridge_health is not None:
+                    self.bridge_health.set_telegram_polling("degraded")
+                    self.bridge_health.record_failure("consumer_conflict")
                 logger.error("Telegram polling stopped reason=another_consumer")
                 raise
             except (TelegramApiError, httpx.HTTPError, TimeoutError, OSError):
+                if self.bridge_health is not None:
+                    self.bridge_health.set_telegram_polling("degraded")
+                    self.bridge_health.record_failure("transport_error")
                 logger.warning("Telegram polling retry scheduled reason=transport_error")
                 await self._sleep_or_stop(backoff)
                 backoff = min(backoff * 2, self.backoff_max_seconds)
 
     def stop(self) -> None:
         self._stopping = True
+        if self.bridge_health is not None:
+            self.bridge_health.set_telegram_polling("disconnected")
 
     async def initialize(self) -> None:
         if not self.store.is_activated():
@@ -444,6 +482,11 @@ class TelegramFoundationService:
             try:
                 self.store.persist_last_update_id(decision.update_id)
             except sqlite3.Error as exc:
+                if self.bridge_health is not None:
+                    self.bridge_health.set_telegram_db_health(
+                        "degraded",
+                        reason=_sqlite_reason(exc),
+                    )
                 logger.warning(
                     "Telegram update offset not persisted reason=%s",
                     _sqlite_reason(exc),
@@ -614,6 +657,7 @@ class TelegramFoundationService:
             )
             _safe_create_bridge_record(
                 self.store,
+                bridge_health=self.bridge_health,
                 correlation_id=inbound.message.correlation_id if inbound.message else "",
                 destination_transport=MESHCORE_TRANSPORT_NAME,
                 destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
@@ -639,6 +683,7 @@ class TelegramFoundationService:
             )
             _safe_create_bridge_record(
                 self.store,
+                bridge_health=self.bridge_health,
                 correlation_id=inbound.message.correlation_id if inbound.message else "",
                 destination_transport=MESHCORE_TRANSPORT_NAME,
                 destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
@@ -653,6 +698,8 @@ class TelegramFoundationService:
             )
             return TelegramUpdateDecision(update_id, "rate_limited", chat_type, "text")
         if self.meshcore_transport is None:
+            if self.bridge_health is not None:
+                self.bridge_health.record_tg_to_mc(success=False, reason="transport_error")
             await self._record_forward_failure(
                 inbound=inbound,
                 rendered=rendered,
@@ -680,6 +727,8 @@ class TelegramFoundationService:
             raise
         except Exception:
             logger.warning("Telegram to MeshCore forward failed reason=transport_error")
+            if self.bridge_health is not None:
+                self.bridge_health.record_tg_to_mc(success=False, reason="transport_error")
             await self._record_forward_failure(
                 inbound=inbound,
                 rendered=rendered,
@@ -708,6 +757,7 @@ class TelegramFoundationService:
         )
         record = _safe_create_bridge_record(
             self.store,
+            bridge_health=self.bridge_health,
             correlation_id=inbound.message.correlation_id if inbound.message else "",
             destination_transport=MESHCORE_TRANSPORT_NAME,
             destination_room_id=outbound.reply_target.room_id if outbound.reply_target else "",
@@ -715,6 +765,8 @@ class TelegramFoundationService:
             size_bytes=size_bytes,
             status="accepted_by_meshcore_transport",
         )
+        if self.bridge_health is not None:
+            self.bridge_health.record_tg_to_mc(success=True)
         logger.info(
             "Telegram message forwarded to MeshCore channel=%s status=%s",
             self.config.meshcore_channel_index,
@@ -814,6 +866,7 @@ class TelegramFoundationService:
         )
         _safe_create_bridge_record(
             self.store,
+            bridge_health=self.bridge_health,
             correlation_id=inbound.message.correlation_id if inbound.message else "",
             destination_transport=MESHCORE_TRANSPORT_NAME,
             destination_room_id=_meshcore_room(self.config.meshcore_channel_index).room_id,
@@ -840,6 +893,8 @@ class TelegramFoundationService:
                 causation_event_id=causation_event_id,
             )
         except sqlite3.Error as exc:
+            if self.bridge_health is not None:
+                self.bridge_health.set_audit_db_health("degraded", reason=_sqlite_reason(exc))
             logger.warning("Bridge audit event skipped reason=%s", _sqlite_reason(exc))
             return None
 
@@ -849,6 +904,8 @@ class TelegramFoundationService:
         try:
             return self.audit_flow.message_received(inbound)
         except sqlite3.Error as exc:
+            if self.bridge_health is not None:
+                self.bridge_health.set_audit_db_health("degraded", reason=_sqlite_reason(exc))
             logger.warning("Audit degraded stage=message_received error=%s", _sqlite_reason(exc))
             return self.audit_flow.degraded_trail(inbound)
         except RuntimeError:
@@ -929,12 +986,16 @@ class TelegramFoundationService:
                 message_type=message_type,
             )
         except sqlite3.Error as exc:
+            if self.bridge_health is not None:
+                self.bridge_health.set_telegram_db_health("degraded", reason=_sqlite_reason(exc))
             logger.warning("Telegram audit event skipped reason=%s", _sqlite_reason(exc))
 
     def _seen_or_store_update(self, update_id: int) -> bool:
         try:
             return self.store.seen_or_store_update(update_id)
         except sqlite3.Error as exc:
+            if self.bridge_health is not None:
+                self.bridge_health.set_telegram_db_health("degraded", reason=_sqlite_reason(exc))
             logger.warning("Telegram update ignored reason=%s", _sqlite_reason(exc))
             return True
 
@@ -1095,6 +1156,7 @@ def _is_self_sent_meshcore(message: InboundMessage) -> bool:
 def _safe_create_bridge_record(
     store: TelegramStore,
     *,
+    bridge_health: BridgeHealthState | None = None,
     correlation_id: str,
     destination_transport: str,
     destination_room_id: str,
@@ -1112,6 +1174,8 @@ def _safe_create_bridge_record(
             status=status,
         )
     except sqlite3.Error as exc:
+        if bridge_health is not None:
+            bridge_health.set_telegram_db_health("degraded", reason=_sqlite_reason(exc))
         logger.warning("Telegram bridge pending record skipped reason=%s", _sqlite_reason(exc))
         return None
 

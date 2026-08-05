@@ -244,6 +244,21 @@ Telegram unless the operator enables the option. Errors, rate limits,
 authorization failures, oversized-message responses, commands, and MeshCore to
 Telegram forwarding are unchanged.
 
+The `!bridge` command reports readonly operational state on the originating
+transport only. It summarizes the App version, MeshCore and Telegram state,
+forwarding flags, confirmation setting, audit database health, Telegram database
+health, and the last safe failure reason. It never includes tokens, raw Telegram
+chat IDs or user IDs, MeshCore sender IDs, pubkeys, message IDs, message text,
+entity IDs, or filesystem paths.
+
+The App writes `/data/health.json` atomically for the Docker healthcheck and
+local diagnostics. The file may report `status: degraded` while the process
+stays healthy; degraded bridge state is visible without forcing a Supervisor
+restart. Native Home Assistant entities are not created in this phase because
+the App is not a Home Assistant integration. A future integration or MQTT
+discovery layer can expose sensors such as bridge status, version, counters, and
+last-error state.
+
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with
 `allowed_updates=["message"]`, filters unsupported or unauthorized updates,

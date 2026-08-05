@@ -12,8 +12,8 @@ def main() -> None:
     if not path.exists():
         raise SystemExit("healthcheck file does not exist")
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("status") != "ok":
-        raise SystemExit("healthcheck status is not ok")
+    if not isinstance(payload, dict) or payload.get("status") not in {"ok", "degraded"}:
+        raise SystemExit("healthcheck status is not ok or degraded")
     updated_at = payload.get("updated_at")
     if not isinstance(updated_at, str):
         raise SystemExit("healthcheck timestamp is missing")
