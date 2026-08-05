@@ -61,6 +61,7 @@ telegram:
   max_telegram_message_length: 3900
   message_prefix: "TG: "
   meshcore_to_telegram_prefix: "MC: "
+  send_forward_confirmation: false
   forwarding_rate_limit:
     messages: 5
     window_seconds: 60
@@ -320,6 +321,7 @@ release and without replacing the stable App image.
       max_telegram_message_length: 3900
       message_prefix: "TG: "
       meshcore_to_telegram_prefix: "MC: "
+      send_forward_confirmation: false
       forwarding_rate_limit:
         messages: 5
         window_seconds: 60

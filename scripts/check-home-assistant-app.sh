@@ -90,6 +90,7 @@ assert config["options"]["telegram"] == {
     "max_telegram_message_length": 3900,
     "message_prefix": "TG: ",
     "meshcore_to_telegram_prefix": "MC: ",
+    "send_forward_confirmation": False,
     "forwarding_rate_limit": {
         "messages": 5,
         "window_seconds": 60,
@@ -103,6 +104,7 @@ assert config["options"]["allow_unidentified_readonly_testing"] is True
 assert config["options"]["log_level"] == "debug"
 assert config["schema"]["authorized_senders"][0]["role"] == "list(readonly|home|operator|admin)"
 assert config["schema"]["weather_status"]["temperature_entity"] == "str?"
+assert config["schema"]["telegram"]["send_forward_confirmation"] == "bool"
 assert config["schema"]["weather_status"]["humidity_entity"] == "str?"
 assert config["schema"]["telegram"]["bot_token_import"] == "password?"
 assert config["schema"]["telegram"]["meshcore_channel_index"] == "int(1,255)"

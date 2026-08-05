@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -450,20 +451,41 @@ async def test_telegram_unknown_command_responds_in_telegram(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_telegram_normal_text_forwards_to_meshcore(tmp_path: Path) -> None:
+async def test_telegram_normal_text_forwards_to_meshcore(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     meshcore = FakeMeshCoreTransport()
     service, client, connection = _command_service(tmp_path, meshcore_transport=meshcore)
+    caplog.set_level(logging.INFO, logger="meshcore_control.telegram.service")
 
     decision = await service.process_update(_message(107, text="hello"))
 
     assert decision.reason == "forwarded"
-    assert client.send_message_calls == [{"chat_id": "1001", "text": "Enviado a MeshCore."}]
+    assert client.send_message_calls == []
     assert len(meshcore.sent) == 1
     assert meshcore.sent[0].channel_index == 1
     assert meshcore.sent[0].text == "TG: hello"
     assert connection.execute("SELECT status FROM telegram_bridge_pending").fetchone()[0] == (
         "accepted_by_meshcore_transport"
     )
+    assert "Telegram forward confirmation skipped reason=disabled" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_telegram_normal_text_confirms_when_enabled(tmp_path: Path) -> None:
+    meshcore = FakeMeshCoreTransport()
+    service, client, _connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        config=_config(send_forward_confirmation=True),
+    )
+
+    decision = await service.process_update(_message(117, text="hello"))
+
+    assert decision.reason == "forwarded"
+    assert [message.text for message in meshcore.sent] == ["TG: hello"]
+    assert client.send_message_calls == [{"chat_id": "1001", "text": "Enviado a MeshCore."}]
 
 
 @pytest.mark.asyncio
@@ -490,7 +512,7 @@ async def test_telegram_forward_pending_record_lock_does_not_crash_after_send(
 
     assert decision.reason == "forwarded"
     assert meshcore.sent[0].text == "TG: hello"
-    assert client.send_message_calls == [{"chat_id": "1001", "text": "Enviado a MeshCore."}]
+    assert client.send_message_calls == []
     assert not connection.in_transaction
     locker.rollback()
 
@@ -596,6 +618,7 @@ async def test_telegram_forward_confirmation_failure_does_not_crash(
         tmp_path,
         client=client,
         meshcore_transport=meshcore,
+        config=_config(send_forward_confirmation=True),
     )
 
     decision = await service.process_update(_message(126, text="hello"))

@@ -79,6 +79,7 @@ class TelegramConfig:
     max_telegram_message_length: int = 3900
     message_prefix: str = ""
     meshcore_to_telegram_prefix: str = "MC: "
+    send_forward_confirmation: bool = False
     forwarding_rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     inbound_forwarding_rate_limit: RateLimitConfig = field(
         default_factory=lambda: RateLimitConfig(commands=20, window_seconds=60)
@@ -304,6 +305,10 @@ def _parse_telegram(raw_telegram: dict[str, Any]) -> TelegramConfig:
             raw_telegram.get("meshcore_to_telegram_prefix", "MC: "),
             field_name="telegram.meshcore_to_telegram_prefix",
         ),
+        send_forward_confirmation=_strict_bool(
+            raw_telegram.get("send_forward_confirmation", False),
+            "telegram.send_forward_confirmation",
+        ),
         forwarding_rate_limit=_parse_telegram_forwarding_rate_limit(
             raw_telegram.get("forwarding_rate_limit", {})
         ),
@@ -324,6 +329,12 @@ def _validate_telegram_message_prefix(value: object, *, field_name: str) -> str:
     if len(prefix) > 16:
         raise ValueError(f"{field_name} must be 16 characters or fewer")
     return prefix
+
+
+def _strict_bool(value: object, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{field_name} must be a boolean")
 
 
 def _parse_security(raw_security: dict[str, Any]) -> SecurityConfig:

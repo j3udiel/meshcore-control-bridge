@@ -88,6 +88,7 @@ class AppTelegramOptions:
     max_telegram_message_length: int = 3900
     message_prefix: str = "TG: "
     meshcore_to_telegram_prefix: str = "MC: "
+    send_forward_confirmation: bool = False
     forwarding_rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     inbound_forwarding_rate_limit: RateLimitConfig = field(
         default_factory=lambda: RateLimitConfig(commands=20, window_seconds=60)
@@ -229,6 +230,7 @@ class HomeAssistantAppOptions:
                 max_telegram_message_length=self.telegram.max_telegram_message_length,
                 message_prefix=self.telegram.message_prefix,
                 meshcore_to_telegram_prefix=self.telegram.meshcore_to_telegram_prefix,
+                send_forward_confirmation=self.telegram.send_forward_confirmation,
                 forwarding_rate_limit=self.telegram.forwarding_rate_limit,
                 inbound_forwarding_rate_limit=self.telegram.inbound_forwarding_rate_limit,
             ),
@@ -380,6 +382,10 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
         max_telegram_message_length=max_telegram_message_length,
         message_prefix=message_prefix,
         meshcore_to_telegram_prefix=meshcore_to_telegram_prefix,
+        send_forward_confirmation=_bool(
+            data.get("send_forward_confirmation", False),
+            "telegram.send_forward_confirmation",
+        ),
         forwarding_rate_limit=forwarding_rate_limit,
         inbound_forwarding_rate_limit=inbound_forwarding_rate_limit,
     )
@@ -417,6 +423,12 @@ def _int(value: object, name: str) -> int:
         raise TypeError
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be an integer") from exc
+
+
+def _bool(value: object, name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{name} must be a boolean")
 
 
 def _sender_id(pubkey_prefix: str) -> str:

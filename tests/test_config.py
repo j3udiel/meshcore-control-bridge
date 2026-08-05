@@ -104,6 +104,7 @@ def test_telegram_config_loads_disabled_by_default(tmp_path) -> None:
     assert config.telegram.enabled is False
     assert config.telegram.bot_token_file == "/data/telegram.bot_token"
     assert config.telegram.meshcore_channel_index == 1
+    assert config.telegram.send_forward_confirmation is False
 
 
 def test_telegram_enabled_requires_private_chat_and_user(tmp_path) -> None:
@@ -186,6 +187,36 @@ telegram:
     assert config.telegram.meshcore_to_telegram_prefix == "MC: "
     assert config.telegram.max_telegram_message_length == 3900
     assert config.telegram.inbound_forwarding_rate_limit.commands == 20
+
+
+def test_telegram_forward_confirmation_can_be_enabled(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  send_forward_confirmation: true
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.telegram.send_forward_confirmation is True
+
+
+@pytest.mark.parametrize("value", ['"false"', '"true"', "null"])
+def test_telegram_forward_confirmation_rejects_non_boolean(tmp_path, value: str) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        f"""
+telegram:
+  send_forward_confirmation: {value}
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="send_forward_confirmation"):
+        load_config(str(config_file))
 
 
 def test_telegram_meshcore_to_telegram_prefix_rejects_newlines(tmp_path) -> None:
