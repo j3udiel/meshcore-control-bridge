@@ -4,7 +4,11 @@ from typing import Any, Protocol, cast
 
 from meshcore_control.adapters.homeassistant import HomeAssistantStatus
 from meshcore_control.auth.roles import Role
-from meshcore_control.bridge_health import BridgeHealthState, render_bridge_status_for_channel
+from meshcore_control.bridge_health import (
+    BridgeHealthState,
+    render_bridge_status_for_channel,
+    render_last_activity,
+)
 from meshcore_control.commands.help import render_help
 from meshcore_control.commands.registry import CommandContext, CommandDefinition, CommandRegistry
 from meshcore_control.config import AppConfig
@@ -82,6 +86,18 @@ def register(registry: CommandRegistry) -> None:
             minimum_role=Role.readonly,
             confirmation_required=False,
             handler=bridge,
+        )
+    )
+    registry.register(
+        CommandDefinition(
+            name="last",
+            aliases=(),
+            group="system",
+            usage="!last",
+            help_text="Muestra ultima actividad readonly del bridge.",
+            minimum_role=Role.readonly,
+            confirmation_required=False,
+            handler=last,
         )
     )
 
@@ -165,6 +181,17 @@ async def bridge(context: CommandContext, args: list[str]) -> str:
         health_events_enabled=events_enabled,
         heartbeat_seconds=heartbeat_seconds,
     )
+
+
+async def last(context: CommandContext, args: list[str]) -> str:
+    health = context.services.get("bridge_health")
+    if not isinstance(health, BridgeHealthState):
+        return "Last: N/D"
+    compact = context.message.transport != "telegram"
+    try:
+        return render_last_activity(health.snapshot(), compact=compact)
+    except ValueError:
+        return "Last: N/D" if compact else "Last activity\n\nN/D"
 
 
 async def _render_ha_status(ha_client: object | None, status: HomeAssistantStatus) -> str:

@@ -7,7 +7,7 @@ import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -395,6 +395,80 @@ def render_bridge_status_for_channel(
     )
 
 
+def render_last_activity(
+    snapshot: BridgeHealthSnapshot,
+    *,
+    now: datetime | None = None,
+    compact: bool = False,
+) -> str:
+    reference = _utc_now(now)
+    tg_to_mc = relative_time(snapshot.last_tg_to_mc, now=reference)
+    mc_to_tg = relative_time(snapshot.last_mc_to_tg, now=reference)
+    last_error_time = relative_time(snapshot.last_failure, now=reference)
+    uptime = relative_duration(timedelta(seconds=snapshot.uptime_seconds), compact=compact)
+    reason = snapshot.last_failure_reason
+
+    if compact:
+        return "\n".join(
+            [
+                "Last",
+                f"T2M:{tg_to_mc} M2T:{mc_to_tg}",
+                f"OK:{_compact_count(snapshot.tg_to_mc_success)}/"
+                f"{_compact_count(snapshot.mc_to_tg_success)} "
+                f"F:{_compact_count(snapshot.tg_to_mc_failed)}/"
+                f"{_compact_count(snapshot.mc_to_tg_failed)}",
+                f"Cmd:{_compact_count(snapshot.commands_processed)} Up:{uptime}",
+                f"Err:{reason}",
+            ]
+        )
+
+    return "\n".join(
+        [
+            "Last activity",
+            "",
+            f"TG -> MC: {_with_ago(tg_to_mc)}",
+            f"MC -> TG: {_with_ago(mc_to_tg)}",
+            f"TG -> MC: {snapshot.tg_to_mc_success} success / {snapshot.tg_to_mc_failed} failed",
+            f"MC -> TG: {snapshot.mc_to_tg_success} success / {snapshot.mc_to_tg_failed} failed",
+            f"Commands: {snapshot.commands_processed}",
+            f"Last error: {reason}",
+            f"Last error time: {_with_ago(last_error_time)}",
+            f"Uptime: {uptime}",
+        ]
+    )
+
+
+def relative_time(value: datetime | None, *, now: datetime | None = None) -> str:
+    if value is None:
+        return "never"
+    reference = _utc_now(now)
+    current = _utc_now(value)
+    delta_seconds = int((reference - current).total_seconds())
+    if delta_seconds <= 0:
+        return "now"
+    return relative_duration(timedelta(seconds=delta_seconds), compact=True)
+
+
+def relative_duration(value: timedelta, *, compact: bool = False) -> str:
+    seconds = max(0, int(value.total_seconds()))
+    if seconds == 0:
+        return "now"
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes // 60
+    remaining_minutes = minutes % 60
+    if hours < 24:
+        separator = "" if compact else " "
+        return f"{hours}h{separator}{remaining_minutes}m"
+    days = hours // 24
+    remaining_hours = hours % 24
+    separator = "" if compact else " "
+    return f"{days}d{separator}{remaining_hours}h"
+
+
 def _telegram_state(snapshot: BridgeHealthSnapshot) -> str:
     if not snapshot.telegram_enabled:
         return "disabled"
@@ -424,6 +498,25 @@ def _channel_unknown() -> str:
 def _safe_reason(reason: str) -> str:
     normalized = reason.strip().lower().replace(" ", "_")
     return normalized if normalized in _SAFE_FAILURE_REASONS else "storage_error"
+
+
+def _with_ago(value: str) -> str:
+    return value if value in {"never", "now"} else f"{value} ago"
+
+
+def _compact_count(value: int) -> str:
+    if value < 10_000:
+        return str(value)
+    if value < 1_000_000:
+        return f"{value // 1_000}k"
+    return "999k+"
+
+
+def _utc_now(value: datetime | None = None) -> datetime:
+    current = value or datetime.now(UTC)
+    if current.tzinfo is None:
+        raise ValueError("datetime must be timezone-aware")
+    return current.astimezone(UTC)
 
 
 def _rfc3339(value: datetime) -> str:

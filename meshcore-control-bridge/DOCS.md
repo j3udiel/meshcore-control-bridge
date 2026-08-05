@@ -251,6 +251,15 @@ health, and the last safe failure reason. It never includes tokens, raw Telegram
 chat IDs or user IDs, MeshCore sender IDs, pubkeys, message IDs, message text,
 entity IDs, or filesystem paths.
 
+The `!last` command reports readonly last-activity counters from the same
+in-memory `BridgeHealthState`. Telegram receives a detailed response; MeshCore
+receives a compact LoRa-friendly response. It reports relative last Telegram to
+MeshCore activity, relative last MeshCore to Telegram activity, success and
+failure counters, processed command count, uptime, and the last sanitized failure
+reason. These counters and timestamps reset when the App restarts. This release
+does not add SQLite persistence for `!last`; `/data/health.json` and
+`meshcore_control_bridge_health` events remain the external observable state.
+
 The App writes `/data/health.json` atomically for the Docker healthcheck and
 local diagnostics. The file may report `status: degraded` while the process
 stays healthy; degraded bridge state is visible without forcing a Supervisor
