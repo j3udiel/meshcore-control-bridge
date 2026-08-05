@@ -7,26 +7,44 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-08-06
+
 ### Added
 
 - Add readonly `!last` command for Telegram and MeshCore.
-- Show last activity, safe counters, uptime, and sanitized last-error state from
-  `BridgeHealthState` without querying SQLite.
+- Show recent forwarding activity, safe counters, uptime, and sanitized
+  last-error state.
+- Add deterministic UTC-based relative-time formatting.
+- Add `!last` to the authorized readonly help output.
 
 ### Behavior
 
 - `!last` replies only on the originating transport.
-- Telegram receives a detailed activity response.
-- MeshCore receives a compact LoRa-friendly response.
-- Activity counters and timestamps remain in memory and reset on App restart.
-- `!help` includes `!last` for authorized readonly users.
+- Telegram receives a detailed activity summary.
+- MeshCore receives a compact LoRa-friendly summary.
+- Data is read from the in-memory `BridgeHealthState`.
+- No SQLite query is performed for the command.
+- Activity counters and timestamps reset when the App restarts.
 
 ### Security
 
-- `!last` does not expose tokens, raw IDs, pubkeys, message IDs, message text,
-  command contents, entity IDs, paths, or correlation IDs.
-- No persistence, forwarding, authorization, MQTT, HACS, or write-command
-  behavior changes are included.
+- `!last` excludes tokens, raw IDs, pubkeys, message IDs, message text, command
+  contents, entity IDs, paths, and correlation IDs.
+- Last-error output remains restricted to sanitized safe reasons.
+- No command bridging or write commands are introduced.
+
+### Compatibility
+
+- Existing forwarding, echo prevention, and authorization remain unchanged.
+- `/data/health.json` and Home Assistant health events remain unchanged.
+- No persistence is added in this release.
+
+### Not Included
+
+- Persistent counters.
+- Administrative bridge controls.
+- MQTT or HACS integration.
+- USB release work.
 
 ## [0.1.17] - 2026-08-05
 
