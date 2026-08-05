@@ -7,6 +7,21 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Add readonly `!bridge` status command for MeshCore and Telegram.
+- Add in-memory bridge health state with safe forwarding counters and database
+  health flags.
+- Write redacted Home Assistant App health JSON for local diagnostics.
+
+### Security / Behavior
+
+- `!bridge` replies only on the originating transport and does not bridge
+  commands or responses.
+- Health output omits tokens, raw IDs, pubkeys, message text, entity IDs, and
+  filesystem paths.
+- No write commands or forwarding behavior changes are included.
+
 ## [0.1.15] - 2026-08-05
 
 ### Added

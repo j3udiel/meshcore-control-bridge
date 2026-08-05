@@ -10,6 +10,7 @@ import pytest
 from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
 from meshcore_control.auth.roles import Role
+from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import AppConfig, RateLimitConfig, TelegramConfig
 from meshcore_control.models import InboundMessage, MessageIdentity, RoomRef, SenderIdentity
@@ -82,6 +83,7 @@ def _build_bridge(
     telegram_error: Exception | None = None,
     authorized: bool = True,
     connection: sqlite3.Connection | None = None,
+    health: BridgeHealthState | None = None,
 ) -> BuiltBridge:
     db = connection or connect_database(str(tmp_path / "audit.db"))
     registry = build_registry()
@@ -97,6 +99,9 @@ def _build_bridge(
         ),
     )
     audit_flow = AuditFlow(connection=db, legacy=legacy, normalized=normalized)
+    services: dict[str, object] = {"registry": registry, "config": AppConfig()}
+    if health is not None:
+        services["bridge_health"] = health
     router = CommandRouter(
         registry=registry,
         authorizer=Authorizer(
@@ -112,7 +117,7 @@ def _build_bridge(
         ),
         audit=legacy,
         audit_flow=audit_flow,
-        services={"registry": registry, "config": AppConfig()},
+        services=services,
         prefix="!",
     )
     client = FakeTelegramClient(send_error=telegram_error, connection=db)
@@ -123,6 +128,7 @@ def _build_bridge(
         client=client,
         store=store,
         normalized_audit=normalized,
+        bridge_health=health,
         backoff_max_seconds=1,
         sleep=_noop_sleep,
     )
@@ -231,6 +237,33 @@ async def test_meshcore_normal_text_forwards_to_telegram(tmp_path: Path) -> None
     assert built.connection.execute("SELECT status FROM telegram_bridge_pending").fetchone()[0] == (
         "accepted_by_telegram"
     )
+
+
+@pytest.mark.asyncio
+async def test_bridge_health_tracks_meshcore_to_telegram_forward_success(tmp_path: Path) -> None:
+    health = BridgeHealthState()
+    built = _build_bridge(tmp_path, health=health)
+
+    outbound = await built.service.process_message(_message("texto normal"))
+
+    assert outbound is None
+    snapshot = health.snapshot()
+    assert snapshot.mc_to_tg_success == 1
+    assert snapshot.mc_to_tg_failed == 0
+
+
+@pytest.mark.asyncio
+async def test_bridge_health_tracks_meshcore_to_telegram_forward_failure(tmp_path: Path) -> None:
+    health = BridgeHealthState()
+    built = _build_bridge(tmp_path, telegram_error=TimeoutError(), health=health)
+
+    outbound = await built.service.process_message(_message("texto normal"))
+
+    assert outbound is None
+    snapshot = health.snapshot()
+    assert snapshot.mc_to_tg_success == 0
+    assert snapshot.mc_to_tg_failed == 1
+    assert snapshot.last_failure_reason == "transport_error"
 
 
 @pytest.mark.asyncio

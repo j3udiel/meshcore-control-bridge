@@ -6,6 +6,7 @@ import time
 
 from meshcore_control.auth.authorization import Authorizer
 from meshcore_control.auth.roles import Role
+from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.commands.parser import ParsedCommand, parse_command
 from meshcore_control.commands.registry import CommandContext, CommandRegistry
 from meshcore_control.models import InboundMessage
@@ -97,6 +98,9 @@ class CommandRouter:
             logger.info("Command accepted command=%s authorization=allowed", definition.name)
             result_text = await definition.handler(context, parsed.args)
             result = "succeeded"
+            health = self.services.get("bridge_health")
+            if isinstance(health, BridgeHealthState):
+                health.record_command_processed()
             return result_text
         except Exception as exc:
             result = "failed"

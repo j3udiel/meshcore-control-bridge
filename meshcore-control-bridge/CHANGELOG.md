@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Add readonly `!bridge` status command for MeshCore and Telegram.
+- Add in-memory bridge health state with safe forwarding counters and database
+  health flags.
+- Write redacted `/data/health.json` for local diagnostics and the container
+  healthcheck.
+- Keep `!bridge` local to the originating transport.
+- Do not expose tokens, raw IDs, pubkeys, message text, entity IDs, or paths in
+  health output.
+- Does not add write commands or change forwarding behavior.
+
 ## 0.1.15
 
 - Add `telegram.send_forward_confirmation`.

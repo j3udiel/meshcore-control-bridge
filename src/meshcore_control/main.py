@@ -9,6 +9,7 @@ from meshcore_control.adapters.homeassistant import HomeAssistantClient
 from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
 from meshcore_control.auth.roles import Role
+from meshcore_control.bridge_health import BridgeHealthState
 from meshcore_control.commands.router import CommandRouter
 from meshcore_control.config import AppConfig, load_config
 from meshcore_control.homeassistant_app import load_homeassistant_app_config
@@ -43,10 +44,13 @@ def build_service(
     config: AppConfig,
     *,
     normalized_audit_settings: NormalizedAuditSettings | None = None,
+    bridge_health: BridgeHealthState | None = None,
 ) -> BridgeService:
     connection = connect_database(config.database_path, connection_name="audit")
     registry = build_registry()
     services: dict[str, object] = {"registry": registry, "config": config}
+    if bridge_health is not None:
+        services["bridge_health"] = bridge_health
     if config.homeassistant.base_url and config.homeassistant.token:
         services["homeassistant"] = HomeAssistantClient(
             base_url=config.homeassistant.base_url,
@@ -74,7 +78,7 @@ def build_service(
         services=services,
         prefix=config.command_prefix,
     )
-    transport = _build_transport(config)
+    transport = _build_transport(config, bridge_health=bridge_health)
     return BridgeService(
         transport=transport,
         router=router,
@@ -87,10 +91,15 @@ def build_service(
             window_seconds=config.security.rate_limit.window_seconds,
         ),
         channel_index=config.meshcore.channel_index,
+        bridge_health=bridge_health,
     )
 
 
-def _build_transport(config: AppConfig) -> Transport:
+def _build_transport(
+    config: AppConfig,
+    *,
+    bridge_health: BridgeHealthState | None = None,
+) -> Transport:
     if config.meshcore.transport == "homeassistant":
         return HomeAssistantMeshCoreTransport(
             settings=HomeAssistantMeshCoreSettings(
@@ -105,7 +114,8 @@ def _build_transport(config: AppConfig) -> Transport:
                 require_stable_sender=config.meshcore.require_stable_sender,
                 allow_channel_without_sender=config.meshcore.allow_channel_without_sender,
                 healthcheck_path=config.meshcore.healthcheck_path,
-            )
+            ),
+            bridge_health=bridge_health,
         )
     if config.meshcore.transport == "usb":
         raise NotImplementedError(
@@ -159,7 +169,18 @@ async def amain() -> None:
         if args.home_assistant_app
         else NormalizedAuditSettings.from_environment()
     )
-    service = build_service(config, normalized_audit_settings=normalized_audit_settings)
+    bridge_health = BridgeHealthState(healthcheck_path=config.meshcore.healthcheck_path)
+    bridge_health.configure(
+        telegram_enabled=config.telegram.enabled,
+        forward_telegram_to_meshcore=config.telegram.forward_telegram_to_meshcore,
+        forward_meshcore_to_telegram=config.telegram.forward_meshcore_to_telegram,
+        forward_confirmation_enabled=config.telegram.send_forward_confirmation,
+    )
+    service = build_service(
+        config,
+        normalized_audit_settings=normalized_audit_settings,
+        bridge_health=bridge_health,
+    )
     telegram_service, meshcore_to_telegram_forwarder = _build_telegram_services(
         config,
         normalized_audit_settings,
@@ -167,6 +188,7 @@ async def amain() -> None:
         audit_flow=service.audit_flow,
         meshcore_transport=service.transport,
         normalized_audit=service.audit_flow.normalized if service.audit_flow else None,
+        bridge_health=bridge_health,
     )
     service.normal_text_forwarder = meshcore_to_telegram_forwarder
     if args.home_assistant_app:
@@ -182,6 +204,7 @@ def _build_telegram_services(
     audit_flow: AuditFlow | None,
     meshcore_transport: Transport,
     normalized_audit: NormalizedAuditRepository | None,
+    bridge_health: BridgeHealthState | None = None,
 ) -> tuple[TelegramFoundationService | None, MeshCoreToTelegramForwarder | None]:
     if not config.telegram.enabled:
         return None, None
@@ -216,12 +239,14 @@ def _build_telegram_services(
         audit_flow=audit_flow,
         meshcore_transport=meshcore_transport,
         normalized_audit=normalized_audit,
+        bridge_health=bridge_health,
     )
     meshcore_to_telegram_forwarder = MeshCoreToTelegramForwarder(
         config=config.telegram,
         client=client,
         store=store,
         normalized_audit=normalized_audit,
+        bridge_health=bridge_health,
     )
     return telegram_service, meshcore_to_telegram_forwarder
 

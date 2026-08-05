@@ -304,6 +304,19 @@ work can also forward normal MeshCore channel text to Telegram with loop
 prevention for Telegram-originated echoes. Commands and command responses remain
 local to their originating transport and are not bridged.
 
+## Bridge Status
+
+Use `!bridge` from an authorized MeshCore sender or the authorized Telegram chat
+to get a readonly operational summary. The command replies only on the transport
+where it was received and does not bridge the command or response.
+
+The Home Assistant App also writes a redacted `/data/health.json` used by the
+container healthcheck. It reports process and bridge state, forwarding flags,
+safe counters, database health, and a sanitized last-error reason. It does not
+include tokens, raw chat IDs, user IDs, sender IDs, message IDs, message text, or
+entity IDs. This App does not create native Home Assistant entities in this
+phase; `/data/health.json` is the stable local health surface.
+
 ## Local Home Assistant URL for Offline Use
 
 Configure `HA_BASE_URL` with a local URL so the bridge can work when WAN access
