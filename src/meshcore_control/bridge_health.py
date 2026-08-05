@@ -413,9 +413,11 @@ def render_last_activity(
             [
                 "Last",
                 f"T2M:{tg_to_mc} M2T:{mc_to_tg}",
-                f"OK:{snapshot.tg_to_mc_success}/{snapshot.mc_to_tg_success} "
-                f"F:{snapshot.tg_to_mc_failed}/{snapshot.mc_to_tg_failed}",
-                f"Cmd:{snapshot.commands_processed} Up:{uptime}",
+                f"OK:{_compact_count(snapshot.tg_to_mc_success)}/"
+                f"{_compact_count(snapshot.mc_to_tg_success)} "
+                f"F:{_compact_count(snapshot.tg_to_mc_failed)}/"
+                f"{_compact_count(snapshot.mc_to_tg_failed)}",
+                f"Cmd:{_compact_count(snapshot.commands_processed)} Up:{uptime}",
                 f"Err:{reason}",
             ]
         )
@@ -500,6 +502,14 @@ def _safe_reason(reason: str) -> str:
 
 def _with_ago(value: str) -> str:
     return value if value in {"never", "now"} else f"{value} ago"
+
+
+def _compact_count(value: int) -> str:
+    if value < 10_000:
+        return str(value)
+    if value < 1_000_000:
+        return f"{value // 1_000}k"
+    return "999k+"
 
 
 def _utc_now(value: datetime | None = None) -> datetime:

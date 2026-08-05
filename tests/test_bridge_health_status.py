@@ -9,6 +9,8 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
+
 from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
 from meshcore_control.auth.roles import Role
@@ -232,6 +234,16 @@ def test_last_command_initial_state_uses_never(tmp_path: Path) -> None:
     assert "Uptime: now" in outbound.text
 
 
+def test_last_command_handles_missing_health_state_safely(tmp_path: Path) -> None:
+    service, _transport = _service(tmp_path, health=_configured_health(tmp_path))
+    service.router.services.pop("bridge_health")
+
+    outbound = asyncio.run(service.process_message(_message(text="!last")))
+
+    assert outbound is not None
+    assert outbound.text == "Last: N/D"
+
+
 def test_last_command_reports_safe_error_reason(tmp_path: Path) -> None:
     health = _last_activity_health(tmp_path)
     health.record_failure("token chat_id sender_id pubkey")
@@ -243,6 +255,36 @@ def test_last_command_reports_safe_error_reason(tmp_path: Path) -> None:
     assert "Err:storage_error" in outbound.text
     for marker in ["token", "chat_id", "sender_id", "pubkey"]:
         assert marker not in outbound.text
+
+
+def test_last_command_compact_output_caps_large_counter_display(tmp_path: Path) -> None:
+    health = _last_activity_health(tmp_path)
+    with health._lock:
+        health._tg_to_mc_success = 123_456
+        health._mc_to_tg_success = 999_999_999
+        health._tg_to_mc_failed = 10_001
+        health._mc_to_tg_failed = 0
+        health._commands_processed = 4_000_000
+    service, _transport = _service(tmp_path, health=health)
+
+    outbound = asyncio.run(service.process_message(_message(text="!last")))
+
+    assert outbound is not None
+    assert "OK:123k/999k+ F:10k/0" in outbound.text
+    assert "Cmd:999k+" in outbound.text
+    assert len(outbound.text) < 180
+
+
+def test_last_command_naive_datetime_returns_safe_response(tmp_path: Path) -> None:
+    health = _last_activity_health(tmp_path)
+    with health._lock:
+        health._last_tg_to_mc = datetime(2026, 8, 6, 12, 0)
+    service, _transport = _service(tmp_path, health=health)
+
+    outbound = asyncio.run(service.process_message(_message(text="!last")))
+
+    assert outbound is not None
+    assert outbound.text == "Last: N/D"
 
 
 def test_last_command_help_is_visible_to_readonly_user(tmp_path: Path) -> None:
@@ -297,6 +339,19 @@ def test_relative_time_formats_are_deterministic() -> None:
     assert relative_time(now - timedelta(minutes=2), now=now) == "2m"
     assert relative_time(now - timedelta(hours=4, minutes=18), now=now) == "4h18m"
     assert relative_time(now - timedelta(days=3, hours=2), now=now) == "3d2h"
+
+
+def test_relative_time_future_timestamp_is_now() -> None:
+    now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+
+    assert relative_time(now + timedelta(seconds=30), now=now) == "now"
+
+
+def test_relative_time_rejects_naive_datetime() -> None:
+    now = datetime(2026, 8, 5, 12, 0, tzinfo=UTC)
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        relative_time(datetime(2026, 8, 5, 11, 59), now=now)
 
 
 def test_last_activity_render_can_use_explicit_snapshot_time() -> None:

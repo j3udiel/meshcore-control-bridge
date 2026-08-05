@@ -188,7 +188,10 @@ async def last(context: CommandContext, args: list[str]) -> str:
     if not isinstance(health, BridgeHealthState):
         return "Last: N/D"
     compact = context.message.transport != "telegram"
-    return render_last_activity(health.snapshot(), compact=compact)
+    try:
+        return render_last_activity(health.snapshot(), compact=compact)
+    except ValueError:
+        return "Last: N/D" if compact else "Last activity\n\nN/D"
 
 
 async def _render_ha_status(ha_client: object | None, status: HomeAssistantStatus) -> str:
