@@ -1,7 +1,7 @@
 name: MeshCore Control Bridge
 slug: meshcore_control_bridge
 description: Offline command bridge between MeshCore and Home Assistant
-version: "0.1.12"
+version: "0.1.13"
 startup: application
 boot: auto
 init: false

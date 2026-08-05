@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing tag to publish as a GitHub Release, for example v0.1.12
+        description: Existing tag to publish as a GitHub Release, for example v0.1.13
         required: true
         type: string
 

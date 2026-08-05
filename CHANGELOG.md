@@ -7,6 +7,33 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-08-05
+
+### Fixed
+
+- Fix nested SQLite transaction failures during audit and command processing.
+- Use explicit SQLite autocommit mode and SAVEPOINTs for nested writes.
+- Prevent audit database failures from stopping MeshCore or Telegram forwarding.
+- Improve bounded retry and rollback behavior for concurrent SQLite writers.
+- Fix service shutdown ordering and asynchronous generator cleanup.
+- Distinguish missing, null, and empty `authorized_senders` configuration.
+
+### Security / Behavior
+
+- Authorization remains fail-closed.
+- `allow_unidentified_readonly_testing` remains diagnostic-only.
+- Telegram authorization remains separate from MeshCore `authorized_senders`.
+- No raw message text, IDs, or tokens are added to logs.
+- Commands and forwarding behavior remain unchanged.
+
+### Not Included
+
+- New commands.
+- New transports.
+- Groups, media, or webhooks.
+- Write commands.
+- USB release work.
+
 ## [0.1.12] - 2026-08-05
 
 ### Fixed
