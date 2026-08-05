@@ -5,11 +5,14 @@ import sqlite3
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
+from threading import get_ident
 
 logger = logging.getLogger(__name__)
 
-SQLITE_BUSY_TIMEOUT_MS = 5000
+SQLITE_BUSY_TIMEOUT_MS = 50
 SQLITE_CONNECTION_TIMEOUT_SECONDS = 5.0
 SQLITE_WRITE_RETRIES = 3
 SQLITE_WRITE_RETRY_INITIAL_SECONDS = 0.05
@@ -153,18 +156,47 @@ CREATE TABLE IF NOT EXISTS telegram_bridge_pending (
 """
 
 
-def connect_database(path: str) -> sqlite3.Connection:
+@dataclass(frozen=True, slots=True)
+class ConnectionInfo:
+    name: str
+    path: str
+    identity: str
+
+
+_CONNECTION_INFO: dict[int, ConnectionInfo] = {}
+
+
+def telegram_database_path(audit_database_path: str) -> str:
+    if audit_database_path == ":memory:":
+        return audit_database_path
+    return str(Path(audit_database_path).with_name("telegram.db"))
+
+
+def connect_database(path: str, *, connection_name: str = "sqlite") -> sqlite3.Connection:
     db_path = Path(path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    if path != ":memory:":
+        db_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(
-        db_path,
+        path if path == ":memory:" else db_path,
         timeout=SQLITE_CONNECTION_TIMEOUT_SECONDS,
         isolation_level=None,
     )
     connection.row_factory = sqlite3.Row
     configure_connection(connection)
     connection.executescript(SCHEMA)
+    _register_connection(connection, path=path, connection_name=connection_name)
     return connection
+
+
+def connection_info(connection: sqlite3.Connection) -> ConnectionInfo:
+    return _CONNECTION_INFO.get(
+        id(connection),
+        ConnectionInfo(
+            name="unknown",
+            path="unknown",
+            identity=_connection_identity(connection, ""),
+        ),
+    )
 
 
 def configure_connection(connection: sqlite3.Connection) -> None:
@@ -179,34 +211,51 @@ def write_transaction[T](
     connection: sqlite3.Connection,
     operation: Callable[[], T],
     *,
+    operation_name: str = "sqlite.write",
     retries: int = SQLITE_WRITE_RETRIES,
     initial_backoff_seconds: float = SQLITE_WRITE_RETRY_INITIAL_SECONDS,
     sleep: Callable[[float], None] = time.sleep,
 ) -> T:
     """Run a short write transaction with bounded recovery for transient SQLite locks."""
+    info = connection_info(connection)
     if connection.in_transaction:
-        return _write_savepoint(connection, operation)
+        return _write_savepoint(connection, operation, operation_name=operation_name, info=info)
 
     attempt = 0
     backoff = initial_backoff_seconds
     while True:
         started = time.monotonic()
         try:
-            logger.debug("SQLite write begin nested=false in_transaction=false")
+            _log_transaction(
+                "begin",
+                info,
+                operation_name=operation_name,
+                nested=False,
+                started=started,
+                in_transaction=connection.in_transaction,
+            )
             connection.execute("BEGIN IMMEDIATE")
             result = operation()
             connection.commit()
-            logger.debug(
-                "SQLite write commit nested=false duration_ms=%s",
-                int((time.monotonic() - started) * 1000),
+            _log_transaction(
+                "commit",
+                info,
+                operation_name=operation_name,
+                nested=False,
+                started=started,
+                in_transaction=connection.in_transaction,
             )
             return result
         except Exception as exc:
             _rollback_quietly(connection)
-            logger.debug(
-                "SQLite write rollback nested=false duration_ms=%s error=%s",
-                int((time.monotonic() - started) * 1000),
-                exc.__class__.__name__,
+            _log_transaction(
+                "rollback",
+                info,
+                operation_name=operation_name,
+                nested=False,
+                started=started,
+                in_transaction=connection.in_transaction,
+                error=exc.__class__.__name__,
             )
             if not is_sqlite_locked(exc) or attempt >= retries:
                 raise
@@ -233,17 +282,34 @@ def _rollback_quietly(connection: sqlite3.Connection) -> None:
         logger.debug("SQLite rollback failed after write error", exc_info=True)
 
 
-def _write_savepoint[T](connection: sqlite3.Connection, operation: Callable[[], T]) -> T:
+def _write_savepoint[T](
+    connection: sqlite3.Connection,
+    operation: Callable[[], T],
+    *,
+    operation_name: str,
+    info: ConnectionInfo,
+) -> T:
     savepoint = f"sp_{uuid.uuid4().hex}"
     started = time.monotonic()
-    logger.debug("SQLite write begin nested=true in_transaction=true")
+    _log_transaction(
+        "begin",
+        info,
+        operation_name=operation_name,
+        nested=True,
+        started=started,
+        in_transaction=True,
+    )
     connection.execute(f"SAVEPOINT {savepoint}")
     try:
         result = operation()
         connection.execute(f"RELEASE SAVEPOINT {savepoint}")
-        logger.debug(
-            "SQLite write release nested=true duration_ms=%s",
-            int((time.monotonic() - started) * 1000),
+        _log_transaction(
+            "release",
+            info,
+            operation_name=operation_name,
+            nested=True,
+            started=started,
+            in_transaction=connection.in_transaction,
         )
         return result
     except Exception as exc:
@@ -252,9 +318,63 @@ def _write_savepoint[T](connection: sqlite3.Connection, operation: Callable[[], 
             connection.execute(f"RELEASE SAVEPOINT {savepoint}")
         except sqlite3.Error:
             logger.debug("SQLite savepoint rollback failed after write error", exc_info=True)
-        logger.debug(
-            "SQLite write rollback nested=true duration_ms=%s error=%s",
-            int((time.monotonic() - started) * 1000),
-            exc.__class__.__name__,
+        _log_transaction(
+            "rollback",
+            info,
+            operation_name=operation_name,
+            nested=True,
+            started=started,
+            in_transaction=connection.in_transaction,
+            error=exc.__class__.__name__,
         )
         raise
+
+
+def _register_connection(
+    connection: sqlite3.Connection,
+    *,
+    path: str,
+    connection_name: str,
+) -> None:
+    _CONNECTION_INFO[id(connection)] = ConnectionInfo(
+        name=connection_name,
+        path=path,
+        identity=_connection_identity(connection, path),
+    )
+
+
+def _connection_identity(connection: sqlite3.Connection, path: str) -> str:
+    material = f"{id(connection)}:{path}".encode()
+    return sha256(material).hexdigest()[:12]
+
+
+def _log_transaction(
+    action: str,
+    info: ConnectionInfo,
+    *,
+    operation_name: str,
+    nested: bool,
+    started: float,
+    in_transaction: bool,
+    error: str | None = None,
+) -> None:
+    try:
+        task = __import__("asyncio").current_task()
+        task_name = task.get_name() if task is not None else "none"
+    except RuntimeError:
+        task_name = "none"
+    logger.debug(
+        "SQLite transaction %s connection=%s database=%s connection_id=%s "
+        "operation=%s nested=%s in_transaction=%s duration_ms=%s thread_id=%s task=%s error=%s",
+        action,
+        info.name,
+        info.path,
+        info.identity,
+        operation_name,
+        nested,
+        in_transaction,
+        int((time.monotonic() - started) * 1000),
+        get_ident(),
+        task_name,
+        error or "none",
+    )
