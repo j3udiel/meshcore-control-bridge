@@ -98,11 +98,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.11`,
+The App version in `config.yaml` selects the image tag. For version `0.1.12`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.11
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.12
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -223,6 +223,11 @@ Version `0.1.11` can also forward normal text from the configured MeshCore
 channel to the authorized Telegram private chat. Commands remain local to their
 originating transport. The bridge still does not support groups, media,
 webhooks, write commands, or USB release work.
+
+Version `0.1.12` is a hotfix for SQLite writer contention during Telegram bridge
+forwarding. It applies consistent WAL and busy-timeout settings, uses short
+explicit write transactions, retries transient SQLite locks with a bounded
+backoff, and keeps pending bridge record failures from crashing the App.
 
 The Telegram runtime validates configuration, manages the token file, clears
 pending updates on first activation, polls Telegram with

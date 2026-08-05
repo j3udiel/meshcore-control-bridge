@@ -7,6 +7,31 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-08-05
+
+### Fixed
+
+- Fix concurrent SQLite writer failures during Telegram bridge forwarding.
+- Prevent `database is locked` errors from crashing the Home Assistant App.
+- Make pending bridge record creation and echo consumption resilient.
+- Apply consistent WAL, busy timeout, and short transaction handling.
+- Improve service shutdown after task failures.
+
+### Security / Behavior
+
+- No raw message text or identifiers are added to logs or audit.
+- Forwarding failures remain fail-closed.
+- Telegram and MeshCore commands remain unchanged.
+- No new functionality is introduced.
+
+### Not Included
+
+- New commands.
+- New transports.
+- Groups, multimedia, or webhooks.
+- Write commands.
+- USB release work.
+
 ## [0.1.11] - 2026-08-05
 
 ### Added
