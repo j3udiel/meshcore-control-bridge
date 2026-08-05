@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Publish redacted bridge health snapshots as Home Assistant events.
+- Add `health.home_assistant_events_enabled` and `health.heartbeat_seconds`.
+- Document trigger-based Home Assistant template sensors and alert
+  automations.
+- Keep health events readonly and omit tokens, raw IDs, pubkeys, message text,
+  entity IDs, paths, and correlation IDs.
+- Coalesce event publication and keep forwarding, authorization, commands, and
+  Docker healthcheck behavior unchanged.
+
 ## 0.1.16
 
 - Add readonly `!bridge` status command for Telegram and MeshCore.

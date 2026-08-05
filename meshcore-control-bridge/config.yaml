@@ -42,6 +42,9 @@ options:
     inbound_forwarding_rate_limit:
       messages: 20
       window_seconds: 60
+  health:
+    home_assistant_events_enabled: true
+    heartbeat_seconds: 60
   rate_limit:
     commands: 5
     window_seconds: 60
@@ -84,6 +87,9 @@ schema:
     inbound_forwarding_rate_limit:
       messages: "int(1,100)"
       window_seconds: "int(1,3600)"
+  health:
+    home_assistant_events_enabled: bool
+    heartbeat_seconds: "int(15,3600)"
   rate_limit:
     commands: "int(1,100)"
     window_seconds: "int(1,3600)"

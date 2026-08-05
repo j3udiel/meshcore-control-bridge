@@ -7,6 +7,19 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Publish redacted bridge health snapshots as Home Assistant events.
+- Add `health.home_assistant_events_enabled` and `health.heartbeat_seconds`.
+- Document trigger-based Home Assistant template sensors and alert automations.
+
+### Security / Behavior
+
+- Health events are readonly and omit tokens, raw IDs, pubkeys, message text,
+  entity IDs, paths, and correlation IDs.
+- Health event publication is coalesced, best-effort, and does not change
+  forwarding, authorization, commands, or Docker healthcheck behavior.
+
 ## [0.1.16] - 2026-08-05
 
 ### Added

@@ -18,3 +18,13 @@ configuration:
       send_forward_confirmation:
         name: Confirm forwarded messages
         description: Send a Telegram confirmation after successfully forwarding a message to MeshCore.
+  health:
+    name: Bridge health
+    description: Read-only bridge health events for Home Assistant template sensors.
+    fields:
+      home_assistant_events_enabled:
+        name: Home Assistant health events
+        description: Publish redacted bridge health snapshots as Home Assistant events.
+      heartbeat_seconds:
+        name: Health heartbeat seconds
+        description: Publish a periodic health event even when the bridge state has not changed.

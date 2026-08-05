@@ -152,11 +152,18 @@ async def bridge(context: CommandContext, args: list[str]) -> str:
     health = context.services.get("bridge_health")
     if not isinstance(health, BridgeHealthState):
         return "Bridge: N/D"
+    config = context.services.get("config")
+    events_enabled = (
+        config.health.home_assistant_events_enabled if isinstance(config, AppConfig) else None
+    )
+    heartbeat_seconds = config.health.heartbeat_seconds if isinstance(config, AppConfig) else None
     compact = context.message.transport != "telegram"
     return render_bridge_status_for_channel(
         health.snapshot(),
         channel_index=context.message.channel_index,
         compact=compact,
+        health_events_enabled=events_enabled,
+        heartbeat_seconds=heartbeat_seconds,
     )
 
 

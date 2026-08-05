@@ -100,6 +100,10 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.telegram.max_telegram_message_length == 3900
     assert config.telegram.forwarding_rate_limit.commands == 5
     assert config.telegram.inbound_forwarding_rate_limit.commands == 20
+    assert options.health.home_assistant_events_enabled is True
+    assert options.health.heartbeat_seconds == 60
+    assert config.health.home_assistant_events_enabled is True
+    assert config.health.heartbeat_seconds == 60
 
 
 def test_homeassistant_app_rejects_public_channel_zero() -> None:
@@ -153,6 +157,44 @@ def test_homeassistant_app_telegram_defaults_match_yaml_defaults() -> None:
     assert options.telegram.forwarding_rate_limit.window_seconds == 60
     assert options.telegram.inbound_forwarding_rate_limit.commands == 20
     assert options.telegram.inbound_forwarding_rate_limit.window_seconds == 60
+    assert options.health.home_assistant_events_enabled is True
+    assert options.health.heartbeat_seconds == 60
+
+
+def test_homeassistant_app_health_options_load_defaults_for_old_options() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "channel_index": 1,
+            "allow_unidentified_readonly_testing": True,
+        }
+    )
+
+    assert options.health.home_assistant_events_enabled is True
+    assert options.health.heartbeat_seconds == 60
+
+
+@pytest.mark.parametrize("value", [None, "true", "false", 1])
+def test_homeassistant_app_health_events_enabled_requires_boolean(value: object) -> None:
+    with pytest.raises(ValueError, match="health.home_assistant_events_enabled"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "allow_unidentified_readonly_testing": True,
+                "health": {"home_assistant_events_enabled": value},
+            }
+        )
+
+
+@pytest.mark.parametrize("value", [14, 3601])
+def test_homeassistant_app_health_heartbeat_range(value: int) -> None:
+    with pytest.raises(ValueError, match="health.heartbeat_seconds"):
+        HomeAssistantAppOptions.from_mapping(
+            {
+                "channel_index": 1,
+                "allow_unidentified_readonly_testing": True,
+                "health": {"heartbeat_seconds": value},
+            }
+        )
 
 
 def test_homeassistant_app_telegram_rejects_invalid_forwarding_prefix() -> None:

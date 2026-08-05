@@ -314,8 +314,13 @@ The Home Assistant App also writes a redacted `/data/health.json` used by the
 container healthcheck. It reports process and bridge state, forwarding flags,
 safe counters, database health, and a sanitized last-error reason. It does not
 include tokens, raw chat IDs, user IDs, sender IDs, message IDs, message text, or
-entity IDs. This App does not create native Home Assistant entities in this
-phase; `/data/health.json` is the stable local health surface.
+entity IDs.
+
+When enabled, the App also fires the Home Assistant event
+`meshcore_control_bridge_health` with the same redacted state. Native Home
+Assistant entities, MQTT discovery, and an HTTP endpoint are not included in this
+phase; use trigger-based template sensors from `DOCS.md` if you want entities in
+Home Assistant.
 
 ## Local Home Assistant URL for Offline Use
 

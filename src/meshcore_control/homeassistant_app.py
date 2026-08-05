@@ -10,6 +10,7 @@ from meshcore_control.auth.authorization import AuthorizedUser, RoomPolicy
 from meshcore_control.auth.roles import Role, parse_role
 from meshcore_control.config import (
     AppConfig,
+    HealthConfig,
     HomeAssistantConfig,
     MeshCoreConfig,
     RateLimitConfig,
@@ -96,6 +97,12 @@ class AppTelegramOptions:
 
 
 @dataclass(frozen=True, slots=True)
+class AppHealthOptions:
+    home_assistant_events_enabled: bool = True
+    heartbeat_seconds: int = 60
+
+
+@dataclass(frozen=True, slots=True)
 class HomeAssistantAppOptions:
     channel_index: int = 1
     meshcore_entry_id: str = ""
@@ -104,6 +111,7 @@ class HomeAssistantAppOptions:
     status_entities: tuple[AppStatusEntity, ...] = ()
     weather_status: AppWeatherStatus = field(default_factory=AppWeatherStatus)
     telegram: AppTelegramOptions = field(default_factory=AppTelegramOptions)
+    health: AppHealthOptions = field(default_factory=AppHealthOptions)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
     log_level: str = "info"
     allow_unidentified_readonly_testing: bool = False
@@ -140,6 +148,7 @@ class HomeAssistantAppOptions:
             status_entities=_parse_status_entities(payload.get("status_entities", [])),
             weather_status=_parse_weather_status(payload.get("weather_status", {})),
             telegram=_parse_telegram(payload.get("telegram", {})),
+            health=_parse_health(payload.get("health", {})),
             rate_limit=RateLimitConfig(
                 commands=_int(rate_limit_data.get("commands", 5), "rate_limit.commands"),
                 window_seconds=_int(
@@ -233,6 +242,10 @@ class HomeAssistantAppOptions:
                 send_forward_confirmation=self.telegram.send_forward_confirmation,
                 forwarding_rate_limit=self.telegram.forwarding_rate_limit,
                 inbound_forwarding_rate_limit=self.telegram.inbound_forwarding_rate_limit,
+            ),
+            health=HealthConfig(
+                home_assistant_events_enabled=self.health.home_assistant_events_enabled,
+                heartbeat_seconds=self.health.heartbeat_seconds,
             ),
             security=SecurityConfig(rate_limit=self.rate_limit),
         )
@@ -397,6 +410,22 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
         if not options.bot_token_file:
             raise ValueError("telegram.bot_token_file is required when enabled")
     return options
+
+
+def _parse_health(value: object) -> AppHealthOptions:
+    if value in (None, ""):
+        return AppHealthOptions()
+    data = _mapping(value, "health")
+    heartbeat_seconds = _int(data.get("heartbeat_seconds", 60), "health.heartbeat_seconds")
+    if not 15 <= heartbeat_seconds <= 3600:
+        raise ValueError("health.heartbeat_seconds must be between 15 and 3600")
+    return AppHealthOptions(
+        home_assistant_events_enabled=_bool(
+            data.get("home_assistant_events_enabled", True),
+            "health.home_assistant_events_enabled",
+        ),
+        heartbeat_seconds=heartbeat_seconds,
+    )
 
 
 def _validate_telegram_message_prefix(value: object, field_name: str) -> str:

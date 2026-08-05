@@ -47,6 +47,12 @@ class RateLimitConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HealthConfig:
+    home_assistant_events_enabled: bool = True
+    heartbeat_seconds: int = 60
+
+
+@dataclass(frozen=True, slots=True)
 class SecurityConfig:
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
 
@@ -102,6 +108,7 @@ class AppConfig:
     status_entities: dict[str, StatusEntityConfig] = field(default_factory=dict)
     weather_status: WeatherStatusConfig = field(default_factory=WeatherStatusConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    health: HealthConfig = field(default_factory=HealthConfig)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
     security: SecurityConfig = field(default_factory=SecurityConfig)
 
@@ -166,6 +173,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         status_entities=_parse_status_entities(file_data.get("status", {}).get("entities", {})),
         weather_status=_parse_weather_status(file_data.get("weather_status", {})),
         telegram=_parse_telegram(file_data.get("telegram", {})),
+        health=_parse_health(file_data.get("health", {})),
         servers=dict(file_data.get("servers", {})),
         security=_parse_security(file_data.get("security", {})),
     )
@@ -337,6 +345,20 @@ def _strict_bool(value: object, field_name: str) -> bool:
     raise ValueError(f"{field_name} must be a boolean")
 
 
+def _parse_health(raw_health: object) -> HealthConfig:
+    health_data = dict(raw_health) if isinstance(raw_health, dict) else {}
+    return HealthConfig(
+        home_assistant_events_enabled=_strict_bool(
+            health_data.get("home_assistant_events_enabled", True),
+            "health.home_assistant_events_enabled",
+        ),
+        heartbeat_seconds=_env_int(
+            "HEALTH_HEARTBEAT_SECONDS",
+            health_data.get("heartbeat_seconds", 60),
+        ),
+    )
+
+
 def _parse_security(raw_security: dict[str, Any]) -> SecurityConfig:
     return SecurityConfig(rate_limit=_parse_rate_limit(raw_security.get("rate_limit", {})))
 
@@ -418,6 +440,8 @@ def _validate(config: AppConfig) -> None:
         raise ValueError("telegram.inbound_forwarding_rate_limit.messages must be positive")
     if config.telegram.inbound_forwarding_rate_limit.window_seconds < 1:
         raise ValueError("telegram.inbound_forwarding_rate_limit.window_seconds must be positive")
+    if not 15 <= config.health.heartbeat_seconds <= 3600:
+        raise ValueError("health.heartbeat_seconds must be between 15 and 3600")
     if config.telegram.enabled:
         if not config.telegram.allowed_private_chat_id:
             raise ValueError("telegram.allowed_private_chat_id is required when enabled")

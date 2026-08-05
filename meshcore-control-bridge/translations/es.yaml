@@ -18,3 +18,13 @@ configuration:
       send_forward_confirmation:
         name: Confirmar mensajes reenviados
         description: Envia una confirmacion en Telegram despues de reenviar correctamente un mensaje a MeshCore.
+  health:
+    name: Salud del bridge
+    description: Eventos readonly de salud del bridge para sensores template de Home Assistant.
+    fields:
+      home_assistant_events_enabled:
+        name: Eventos de salud en Home Assistant
+        description: Publica snapshots redactados de salud del bridge como eventos de Home Assistant.
+      heartbeat_seconds:
+        name: Segundos de heartbeat de salud
+        description: Publica un evento periodico de salud aunque el estado del bridge no haya cambiado.
