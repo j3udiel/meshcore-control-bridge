@@ -142,6 +142,8 @@ Only these commands are currently implemented:
 !estado
 !estado ha
 !exterior
+!bridge
+!last
 ```
 
 `!ping` returns:
@@ -159,6 +161,12 @@ and any read-only status entities configured in YAML.
 Home Assistant. It does not hardcode sensor IDs; set `weather_status` in the
 App options or YAML configuration. If `temperature_entity` is empty, it replies
 that the command is not configured.
+
+`!bridge` returns a readonly operational summary for the originating transport.
+
+`!last` returns readonly last-activity counters and relative timestamps from the
+in-memory bridge health state. These counters reset when the App restarts; this
+command does not add SQLite persistence.
 
 ## Requirements
 
@@ -309,6 +317,14 @@ local to their originating transport and are not bridged.
 Use `!bridge` from an authorized MeshCore sender or the authorized Telegram chat
 to get a readonly operational summary. The command replies only on the transport
 where it was received and does not bridge the command or response.
+
+Use `!last` to get a shorter activity view from the same in-memory
+`BridgeHealthState`: last Telegram to MeshCore activity, last MeshCore to
+Telegram activity, success and failure counters, processed command count, uptime,
+and the last sanitized failure reason. The command replies only on the
+originating transport. Its counters and timestamps reset on App restart; external
+observation remains available through `/data/health.json` and Home Assistant
+health events.
 
 The Home Assistant App also writes a redacted `/data/health.json` used by the
 container healthcheck. It reports process and bridge state, forwarding flags,

@@ -7,6 +7,27 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Add readonly `!last` command for Telegram and MeshCore.
+- Show last activity, safe counters, uptime, and sanitized last-error state from
+  `BridgeHealthState` without querying SQLite.
+
+### Behavior
+
+- `!last` replies only on the originating transport.
+- Telegram receives a detailed activity response.
+- MeshCore receives a compact LoRa-friendly response.
+- Activity counters and timestamps remain in memory and reset on App restart.
+- `!help` includes `!last` for authorized readonly users.
+
+### Security
+
+- `!last` does not expose tokens, raw IDs, pubkeys, message IDs, message text,
+  command contents, entity IDs, paths, or correlation IDs.
+- No persistence, forwarding, authorization, MQTT, HACS, or write-command
+  behavior changes are included.
+
 ## [0.1.17] - 2026-08-05
 
 ### Added
