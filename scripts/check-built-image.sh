@@ -38,7 +38,7 @@ import meshcore_control.adapters.homeassistant_ws as ws
 import meshcore_control.commands.router as router
 import meshcore_control.homeassistant_app_health as health
 
-assert meshcore_control.__version__ == "0.1.18"
+assert meshcore_control.__version__ == "0.1.19"
 assert unidentified_testing_sender_id(1) == "test:unidentified:channel:1"
 assert "authorization=" in inspect.getsource(router)
 assert "on_idle" in inspect.getsource(ws)
