@@ -11,6 +11,10 @@ from urllib.parse import urlparse, urlunparse
 logger = logging.getLogger(__name__)
 
 
+class HomeAssistantWebSocketCommandError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class HomeAssistantEvent:
     event_type: str
@@ -63,51 +67,55 @@ class HomeAssistantWebSocketClient:
     async def events(self, event_types: list[str]) -> AsyncIterator[HomeAssistantEvent]:
         async for websocket in self._connect_loop():
             subscriptions: dict[int, str] = {}
+            pending: dict[int, asyncio.Future[Any]] = {}
+            event_queue: asyncio.Queue[HomeAssistantEvent] = asyncio.Queue(maxsize=100)
+            reader_task: asyncio.Task[None] | None = None
             try:
                 await self._authenticate(websocket)
                 if self.on_authenticated is not None:
                     self.on_authenticated()
                 logger.info("Home Assistant WebSocket authenticated")
+                reader_task = asyncio.create_task(
+                    self._reader_loop(
+                        websocket,
+                        pending,
+                        event_queue=event_queue,
+                        subscriptions=subscriptions,
+                        connection_name="events",
+                    ),
+                    name="ha-ws-events-reader",
+                )
                 for event_type in event_types:
-                    command_id = await self._send(
+                    command_id, future = await self._send_command(
                         websocket,
                         {"type": "subscribe_events", "event_type": event_type},
+                        pending,
+                        operation="subscribe_events",
                     )
-                    await self._expect_success(websocket, command_id)
+                    await self._wait_for_result(
+                        command_id,
+                        future,
+                        pending,
+                        operation="subscribe_events",
+                    )
                     subscriptions[command_id] = event_type
                     logger.info("Subscribed to Home Assistant event type %s", event_type)
                 if self.on_subscribed is not None:
                     self.on_subscribed()
 
                 while True:
+                    if reader_task.done():
+                        await reader_task
                     try:
-                        payload = await self._recv_json(
-                            websocket,
+                        event = await asyncio.wait_for(
+                            event_queue.get(),
                             timeout=self.timeout_seconds,
                         )
                     except TimeoutError:
                         if self.on_idle is not None:
                             self.on_idle()
                         continue
-                    if payload.get("type") != "event":
-                        continue
-                    event = payload.get("event")
-                    if not isinstance(event, dict):
-                        continue
-                    data = event.get("data")
-                    if not isinstance(data, dict):
-                        data = {}
-                    event_id = payload.get("id")
-                    event_type_raw = event.get("event_type")
-                    event_type_name = event_type_raw if isinstance(event_type_raw, str) else ""
-                    if not event_type_name and isinstance(event_id, int):
-                        event_type_name = subscriptions.get(event_id, "")
-                    yield HomeAssistantEvent(
-                        event_type=event_type_name,
-                        data=data,
-                        time_fired=_optional_str(event.get("time_fired")),
-                        context_id=_context_id(event.get("context")),
-                    )
+                    yield event
             except asyncio.CancelledError:
                 logger.info("Home Assistant WebSocket listener cancelled")
                 raise
@@ -117,6 +125,11 @@ class HomeAssistantWebSocketClient:
                 logger.warning("Home Assistant WebSocket disconnected; reconnecting")
                 await asyncio.sleep(1)
                 continue
+            finally:
+                if reader_task is not None:
+                    reader_task.cancel()
+                    await asyncio.gather(reader_task, return_exceptions=True)
+                self._fail_pending(pending, HomeAssistantWebSocketCommandError("disconnected"))
 
     async def call_service(
         self,
@@ -126,22 +139,18 @@ class HomeAssistantWebSocketClient:
         *,
         return_response: bool = False,
     ) -> dict[str, Any] | None:
-        async for websocket in self._connect_loop():
-            await self._authenticate(websocket)
-            command_id = await self._send(
-                websocket,
-                {
-                    "type": "call_service",
-                    "domain": domain,
-                    "service": service,
-                    "service_data": service_data,
-                    "return_response": return_response,
-                },
-            )
-            result = await self._expect_success(websocket, command_id)
-            response = result.get("response") if isinstance(result, dict) else None
-            return response if isinstance(response, dict) else None
-        return None
+        result = await self._simple_command(
+            {
+                "type": "call_service",
+                "domain": domain,
+                "service": service,
+                "service_data": service_data,
+                "return_response": return_response,
+            },
+            operation="call_service",
+        )
+        response = result.get("response") if isinstance(result, dict) else None
+        return response if isinstance(response, dict) else None
 
     async def get_services(self) -> dict[str, Any]:
         result = await self._simple_command({"type": "get_services"})
@@ -159,14 +168,43 @@ class HomeAssistantWebSocketClient:
                 "type": "fire_event",
                 "event_type": event_type,
                 "event_data": event_data,
-            }
+            },
+            operation="fire_event",
         )
 
-    async def _simple_command(self, command: dict[str, Any]) -> Any:
+    async def _simple_command(self, command: dict[str, Any], *, operation: str = "command") -> Any:
         async for websocket in self._connect_loop():
+            pending: dict[int, asyncio.Future[Any]] = {}
+            reader_task: asyncio.Task[None] | None = None
             await self._authenticate(websocket)
-            command_id = await self._send(websocket, command)
-            return await self._expect_success(websocket, command_id)
+            try:
+                reader_task = asyncio.create_task(
+                    self._reader_loop(
+                        websocket,
+                        pending,
+                        event_queue=None,
+                        subscriptions={},
+                        connection_name="command",
+                    ),
+                    name=f"ha-ws-{operation}-reader",
+                )
+                command_id, future = await self._send_command(
+                    websocket,
+                    command,
+                    pending,
+                    operation=operation,
+                )
+                return await self._wait_for_result(
+                    command_id,
+                    future,
+                    pending,
+                    operation=operation,
+                )
+            finally:
+                if reader_task is not None:
+                    reader_task.cancel()
+                    await asyncio.gather(reader_task, return_exceptions=True)
+                self._fail_pending(pending, HomeAssistantWebSocketCommandError("disconnected"))
         return None
 
     async def _connect_loop(self) -> AsyncIterator[Any]:
@@ -204,14 +242,131 @@ class HomeAssistantWebSocketClient:
         await websocket.send(json.dumps({"id": command_id, **payload}))
         return command_id
 
-    async def _expect_success(self, websocket: Any, command_id: int) -> Any:
-        while True:
-            payload = await self._recv_json(websocket, timeout=self.timeout_seconds)
-            if payload.get("type") != "result" or payload.get("id") != command_id:
-                continue
-            if not payload.get("success"):
-                raise RuntimeError("Home Assistant WebSocket command failed")
-            return payload.get("result")
+    async def _send_command(
+        self,
+        websocket: Any,
+        payload: dict[str, Any],
+        pending: dict[int, asyncio.Future[Any]],
+        *,
+        operation: str,
+    ) -> tuple[int, asyncio.Future[Any]]:
+        self._message_id += 1
+        command_id = self._message_id
+        future = asyncio.get_running_loop().create_future()
+        pending[command_id] = future
+        logger.debug(
+            "Home Assistant WebSocket command sent connection=command operation=%s id=%s",
+            operation,
+            command_id,
+        )
+        try:
+            await websocket.send(json.dumps({"id": command_id, **payload}))
+        except Exception:
+            pending.pop(command_id, None)
+            if not future.done():
+                future.cancel()
+            raise
+        return command_id, future
+
+    async def _wait_for_result(
+        self,
+        command_id: int,
+        future: asyncio.Future[Any],
+        pending: dict[int, asyncio.Future[Any]],
+        *,
+        operation: str,
+    ) -> Any:
+        start = asyncio.get_running_loop().time()
+        try:
+            return await asyncio.wait_for(future, timeout=self.timeout_seconds)
+        except TimeoutError:
+            logger.warning(
+                "Home Assistant WebSocket command timed out operation=%s id=%s timeout=%s",
+                operation,
+                command_id,
+                self.timeout_seconds,
+            )
+            raise
+        finally:
+            pending.pop(command_id, None)
+            duration = asyncio.get_running_loop().time() - start
+            logger.debug(
+                "Home Assistant WebSocket command finished operation=%s id=%s duration=%.3f",
+                operation,
+                command_id,
+                duration,
+            )
+
+    async def _reader_loop(
+        self,
+        websocket: Any,
+        pending: dict[int, asyncio.Future[Any]],
+        *,
+        event_queue: asyncio.Queue[HomeAssistantEvent] | None,
+        subscriptions: dict[int, str],
+        connection_name: str,
+    ) -> None:
+        try:
+            while True:
+                payload = await self._recv_json(websocket, timeout=None)
+                payload_type = payload.get("type")
+                payload_id = payload.get("id")
+                logger.debug(
+                    "Home Assistant WebSocket frame received connection=%s type=%s id=%s",
+                    connection_name,
+                    payload_type if isinstance(payload_type, str) else "unknown",
+                    payload_id if isinstance(payload_id, int) else "none",
+                )
+                if payload_type == "result" and isinstance(payload_id, int):
+                    future = pending.get(payload_id)
+                    if future is None:
+                        logger.debug(
+                            "Home Assistant WebSocket result without waiter connection=%s id=%s",
+                            connection_name,
+                            payload_id,
+                        )
+                        continue
+                    if payload.get("success"):
+                        if not future.done():
+                            future.set_result(payload.get("result"))
+                    elif not future.done():
+                        future.set_exception(
+                            HomeAssistantWebSocketCommandError(
+                                "Home Assistant WebSocket command failed"
+                            )
+                        )
+                    continue
+                if payload_type == "event" and event_queue is not None:
+                    event = _event_from_payload(payload, subscriptions)
+                    if event is not None:
+                        try:
+                            event_queue.put_nowait(event)
+                        except asyncio.QueueFull:
+                            logger.warning(
+                                "Home Assistant WebSocket event queue full connection=%s",
+                                connection_name,
+                            )
+                    continue
+                logger.debug(
+                    "Home Assistant WebSocket frame ignored connection=%s type=%s",
+                    connection_name,
+                    payload_type if isinstance(payload_type, str) else "unknown",
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._fail_pending(pending, exc)
+            raise
+
+    def _fail_pending(
+        self,
+        pending: dict[int, asyncio.Future[Any]],
+        exc: BaseException,
+    ) -> None:
+        for future in list(pending.values()):
+            if not future.done():
+                future.set_exception(exc)
+        pending.clear()
 
     async def _recv_json(self, websocket: Any, timeout: float | None) -> dict[str, Any]:
         receive = websocket.recv()
@@ -236,3 +391,26 @@ def _context_id(value: object) -> str | None:
     if isinstance(value, dict):
         return _optional_str(value.get("id"))
     return None
+
+
+def _event_from_payload(
+    payload: dict[str, Any],
+    subscriptions: dict[int, str],
+) -> HomeAssistantEvent | None:
+    event = payload.get("event")
+    if not isinstance(event, dict):
+        return None
+    data = event.get("data")
+    if not isinstance(data, dict):
+        data = {}
+    event_id = payload.get("id")
+    event_type_raw = event.get("event_type")
+    event_type_name = event_type_raw if isinstance(event_type_raw, str) else ""
+    if not event_type_name and isinstance(event_id, int):
+        event_type_name = subscriptions.get(event_id, "")
+    return HomeAssistantEvent(
+        event_type=event_type_name,
+        data=data,
+        time_fired=_optional_str(event.get("time_fired")),
+        context_id=_context_id(event.get("context")),
+    )

@@ -20,6 +20,8 @@ _SAFE_FAILURE_REASONS = {
     "database_locked",
     "storage_error",
     "transport_error",
+    "transport_timeout",
+    "transport_service_error",
     "rate_limited",
     "consumer_conflict",
     "websocket_disconnected",
