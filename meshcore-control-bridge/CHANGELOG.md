@@ -2,13 +2,25 @@
 
 ## Unreleased
 
-- Add `schema_version` to `meshcore_control_bridge_health` event payloads.
-- Document the Home Assistant health integration decision and full
-  trigger-based template sensor set for bridge status, transport state,
-  counters, last activity, and database health.
-- Keep Home Assistant health exposure readonly through redacted events and
-  user-managed template sensors; no native entity internals, MQTT discovery, or
-  direct Home Assistant database writes are added.
+## 0.1.19
+
+- Add schema version 1 to Home Assistant bridge health events.
+- Document the stable `meshcore_control_bridge_health` event contract.
+- Add ready-to-use trigger-based template sensors and binary sensors.
+- Add dashboard and automation examples for bridge health.
+- Expose readonly bridge health through the Home Assistant event bus.
+- Publish startup, state-change, and heartbeat health snapshots.
+- Coalesce rapid changes and avoid duplicate functional snapshots.
+- Keep `/data/health.json` as the canonical local health surface.
+- Document bridge status, version, uptime, MeshCore and Telegram transport
+  state, last activity, last safe error, success and failure counters, command
+  counter, and audit and Telegram database health.
+- Keep health data redacted without tokens, chat IDs, user IDs, sender IDs,
+  pubkeys, message IDs, message text, entity IDs, paths, or correlation IDs.
+- Do not use native Home Assistant internals or direct Home Assistant database
+  writes.
+- Does not change forwarding, authorization, command behavior, MQTT discovery,
+  HACS packaging, administrative commands, or USB release work.
 
 ## 0.1.18
 
