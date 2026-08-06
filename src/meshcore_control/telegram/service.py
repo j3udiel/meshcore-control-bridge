@@ -124,7 +124,7 @@ class MeshCoreToTelegramForwarder:
             },
             causation_event_id=audit_trail.latest_event_id if audit_trail else None,
         )
-        if not self.config.forward_meshcore_to_telegram:
+        if not _effective_meshcore_to_telegram(self.config, self.bridge_health):
             self._audit_ignored(
                 message=message,
                 audit_trail=audit_trail,
@@ -619,7 +619,7 @@ class TelegramFoundationService:
                 "size_bytes": len((self.config.message_prefix + text.strip()).encode("utf-8")),
             },
         )
-        if not self.config.forward_telegram_to_meshcore:
+        if not _effective_telegram_to_meshcore(self.config, self.bridge_health):
             self._audit_bridge(
                 NormalizedAuditEventType.BRIDGE_MESSAGE_IGNORED,
                 inbound=inbound,
@@ -639,6 +639,10 @@ class TelegramFoundationService:
                 "forward_disabled",
                 chat_type or "unknown",
                 "text",
+            )
+            await self._send_forward_confirmation(
+                chat_id=self.config.allowed_private_chat_id,
+                text="Telegram -> MeshCore está desactivado.",
             )
             return TelegramUpdateDecision(update_id, "forward_disabled", chat_type, "text")
         if rendered.text is None:
@@ -773,7 +777,7 @@ class TelegramFoundationService:
             record.status if record is not None else "accepted_by_meshcore_transport",
         )
         self._audit("telegram.update.accepted", "forwarded", refs, chat_type, "text")
-        if self.config.send_forward_confirmation:
+        if _effective_forward_confirmation(self.config, self.bridge_health):
             await self._send_forward_confirmation(
                 chat_id=self.config.allowed_private_chat_id,
                 text=MESHCORE_FORWARD_SUCCESS_TEXT,
@@ -934,6 +938,8 @@ class TelegramFoundationService:
             if len(args) > 1 and args[1].lower() == "ha":
                 return f"{self.config.command_prefix}estado ha"
             return f"{self.config.command_prefix}estado"
+        if command_name == "bridge":
+            return _safe_bridge_command_text(stripped, prefix=self.config.command_prefix)
         return f"{self.config.command_prefix}{command_name}"
 
     def _classify(
@@ -1120,6 +1126,19 @@ def _normalized_bridge_text(text: str) -> str:
     return " ".join(text.strip().split())
 
 
+def _safe_bridge_command_text(text: str, *, prefix: str) -> str:
+    parts = text.split()
+    if len(parts) == 2 and parts[1].lower() == "reset":
+        return f"{prefix}bridge reset"
+    if (
+        len(parts) == 3
+        and parts[1].lower() in {"tg2mc", "mc2tg", "confirm"}
+        and parts[2].lower() in {"on", "off"}
+    ):
+        return f"{prefix}bridge {parts[1].lower()} {parts[2].lower()}"
+    return f"{prefix}bridge"
+
+
 def _meshcore_room(channel_index: int) -> RoomRef:
     return RoomRef.channel(transport=MESHCORE_TRANSPORT_NAME, channel_index=channel_index)
 
@@ -1178,6 +1197,33 @@ def _safe_create_bridge_record(
             bridge_health.set_telegram_db_health("degraded", reason=_sqlite_reason(exc))
         logger.warning("Telegram bridge pending record skipped reason=%s", _sqlite_reason(exc))
         return None
+
+
+def _effective_telegram_to_meshcore(
+    config: TelegramConfig,
+    bridge_health: BridgeHealthState | None,
+) -> bool:
+    if bridge_health is None:
+        return config.forward_telegram_to_meshcore
+    return bridge_health.effective_telegram_to_meshcore()
+
+
+def _effective_meshcore_to_telegram(
+    config: TelegramConfig,
+    bridge_health: BridgeHealthState | None,
+) -> bool:
+    if bridge_health is None:
+        return config.forward_meshcore_to_telegram
+    return bridge_health.effective_meshcore_to_telegram()
+
+
+def _effective_forward_confirmation(
+    config: TelegramConfig,
+    bridge_health: BridgeHealthState | None,
+) -> bool:
+    if bridge_health is None:
+        return config.send_forward_confirmation
+    return bridge_health.effective_forward_confirmation()
 
 
 def _sqlite_reason(exc: sqlite3.Error) -> str:

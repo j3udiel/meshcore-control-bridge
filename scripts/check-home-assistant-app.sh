@@ -82,6 +82,7 @@ assert config["options"]["telegram"] == {
     "bot_token_file": "/data/telegram.bot_token",
     "allowed_private_chat_id": "",
     "allowed_user_id": "",
+    "authorized_user_role": "readonly",
     "meshcore_channel_index": 1,
     "forward_meshcore_to_telegram": True,
     "forward_telegram_to_meshcore": True,
@@ -105,6 +106,9 @@ assert config["options"]["log_level"] == "debug"
 assert config["schema"]["authorized_senders"][0]["role"] == "list(readonly|home|operator|admin)"
 assert config["schema"]["weather_status"]["temperature_entity"] == "str?"
 assert config["schema"]["telegram"]["send_forward_confirmation"] == "bool"
+assert config["schema"]["telegram"]["authorized_user_role"] == (
+    "list(readonly|home|operator|admin)"
+)
 assert config["schema"]["weather_status"]["humidity_entity"] == "str?"
 assert config["schema"]["telegram"]["bot_token_import"] == "password?"
 assert config["schema"]["telegram"]["meshcore_channel_index"] == "int(1,255)"

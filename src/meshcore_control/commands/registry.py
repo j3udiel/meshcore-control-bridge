@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from meshcore_control.auth.authorization import AuthorizedUser
 from meshcore_control.auth.roles import Role
 from meshcore_control.models import InboundMessage
+
+if TYPE_CHECKING:
+    from meshcore_control.storage.audit_flow import AuditTrail
 
 
 @dataclass(slots=True)
@@ -13,6 +17,7 @@ class CommandContext:
     message: InboundMessage
     user: AuthorizedUser
     services: dict[str, object]
+    audit_trail: AuditTrail | None = None
 
 
 CommandHandler = Callable[[CommandContext, list[str]], Awaitable[str]]

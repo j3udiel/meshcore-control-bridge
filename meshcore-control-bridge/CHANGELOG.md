@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Add temporary admin-only `!bridge` runtime controls for Telegram to MeshCore
+  forwarding, MeshCore to Telegram forwarding, and Telegram success
+  confirmations.
+- Add `!bridge reset` to clear runtime overrides and return to App
+  configuration without restarting.
+- Add explicit `telegram.authorized_user_role`, defaulting to `readonly`, so
+  Telegram admin access must be configured intentionally.
+- Keep runtime overrides in memory only; they reset on App restart.
+- Keep `!bridge` readonly without arguments.
+- Report effective forwarding state and redacted `runtime_overrides` in health
+  snapshots and Home Assistant health events.
+- Require the `admin` role for override subcommands.
+- Store override audit events with allow-listed structured metadata only.
+- Do not expose tokens, raw IDs, pubkeys, message text, command arguments,
+  paths, or correlation IDs.
+- Does not add persistent remote configuration, Home Assistant admin service
+  calls, write commands, or USB release work.
+
 ## 0.1.19
 
 - Add schema version 1 to Home Assistant bridge health events.

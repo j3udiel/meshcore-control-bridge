@@ -183,23 +183,34 @@ def _command_service(
             ),
         ),
     )
+    telegram_config = config or _config()
+    if health is not None and not health.snapshot().telegram_enabled:
+        health.configure(
+            telegram_enabled=telegram_config.enabled,
+            forward_telegram_to_meshcore=telegram_config.forward_telegram_to_meshcore,
+            forward_meshcore_to_telegram=telegram_config.forward_meshcore_to_telegram,
+            forward_confirmation_enabled=telegram_config.send_forward_confirmation,
+        )
     users = (
         {
             TELEGRAM_SENDER_ID: AuthorizedUser(
                 TELEGRAM_SENDER_ID,
                 "telegram-authorized-user",
-                Role.readonly,
+                telegram_config.authorized_user_role,
             )
         }
         if authorized
         else {}
     )
-    telegram_config = config or _config()
     app_config = AppConfig(
         weather_status=weather_status or WeatherStatusConfig(),
         telegram=telegram_config,
     )
-    services: dict[str, object] = {"registry": registry, "config": app_config}
+    services: dict[str, object] = {
+        "registry": registry,
+        "config": app_config,
+        "audit_flow": audit_flow,
+    }
     if health is not None:
         services["bridge_health"] = health
     if ha is not None:
@@ -576,7 +587,105 @@ async def test_telegram_forward_disabled_does_not_send(tmp_path: Path) -> None:
 
     assert decision.reason == "forward_disabled"
     assert meshcore.sent == []
-    assert client.send_message_calls == []
+    assert client.send_message_calls == [
+        {"chat_id": "1001", "text": "Telegram -> MeshCore está desactivado."}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_tg_to_mc_override_disables_forward_without_pending_record(
+    tmp_path: Path,
+) -> None:
+    meshcore = FakeMeshCoreTransport()
+    health = BridgeHealthState()
+    health.configure(
+        telegram_enabled=True,
+        forward_telegram_to_meshcore=True,
+        forward_meshcore_to_telegram=True,
+        forward_confirmation_enabled=True,
+    )
+    health.set_runtime_override("telegram_to_meshcore", False)
+    service, client, connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        health=health,
+    )
+
+    decision = await service.process_update(_message(127, text="hello"))
+
+    assert decision.reason == "forward_disabled"
+    assert meshcore.sent == []
+    assert client.send_message_calls == [
+        {"chat_id": "1001", "text": "Telegram -> MeshCore está desactivado."}
+    ]
+    assert (
+        connection.execute("SELECT COUNT(*) FROM telegram_bridge_pending").fetchone()[0] == 0
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_confirm_override_controls_only_success_confirmation(
+    tmp_path: Path,
+) -> None:
+    meshcore = FakeMeshCoreTransport()
+    health = BridgeHealthState()
+    health.configure(
+        telegram_enabled=True,
+        forward_telegram_to_meshcore=True,
+        forward_meshcore_to_telegram=True,
+        forward_confirmation_enabled=False,
+    )
+    health.set_runtime_override("confirmation", True)
+    service, client, _connection = _command_service(
+        tmp_path,
+        meshcore_transport=meshcore,
+        health=health,
+    )
+
+    decision = await service.process_update(_message(128, text="hello"))
+
+    assert decision.reason == "forwarded"
+    assert [message.text for message in meshcore.sent] == ["TG: hello"]
+    assert client.send_message_calls == [{"chat_id": "1001", "text": "Enviado a MeshCore."}]
+
+
+@pytest.mark.asyncio
+async def test_telegram_admin_can_apply_runtime_override_and_audits_redacted(
+    tmp_path: Path,
+) -> None:
+    health = BridgeHealthState()
+    health.configure(
+        telegram_enabled=True,
+        forward_telegram_to_meshcore=True,
+        forward_meshcore_to_telegram=True,
+        forward_confirmation_enabled=False,
+    )
+    service, client, connection = _command_service(
+        tmp_path,
+        config=_config(authorized_user_role=Role.admin),
+        health=health,
+    )
+
+    decision = await service.process_update(_message(129, text="!bridge confirm on"))
+
+    assert decision.reason == "command"
+    assert client.send_message_calls == [
+        {"chat_id": "1001", "text": "Confirmación Telegram: activada hasta reinicio."}
+    ]
+    assert health.snapshot().override_confirmation is True
+    rows = connection.execute(
+        "SELECT event_type, metadata_json FROM normalized_audit_events "
+        "WHERE event_type LIKE 'bridge.runtime_override.%' ORDER BY id"
+    ).fetchall()
+    assert [row["event_type"] for row in rows] == [
+        "bridge.runtime_override.requested",
+        "bridge.runtime_override.applied",
+    ]
+    combined = "\n".join(row["metadata_json"] for row in rows)
+    assert "confirmation" in combined
+    assert "1001" not in combined
+    assert "2002" not in combined
+    assert "bridge confirm on" not in combined
 
 
 @pytest.mark.asyncio

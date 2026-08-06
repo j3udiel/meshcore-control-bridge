@@ -123,6 +123,13 @@ def _build_bridge(
     client = FakeTelegramClient(send_error=telegram_error, connection=db)
     store = TelegramStore(db, audit_key=AuditKey(b"t" * AUDIT_KEY_MIN_BYTES, key_id="tg-key"))
     config = telegram_config or _telegram_config()
+    if health is not None and not health.snapshot().telegram_enabled:
+        health.configure(
+            telegram_enabled=config.enabled,
+            forward_telegram_to_meshcore=config.forward_telegram_to_meshcore,
+            forward_meshcore_to_telegram=config.forward_meshcore_to_telegram,
+            forward_confirmation_enabled=config.send_forward_confirmation,
+        )
     forwarder = MeshCoreToTelegramForwarder(
         config=config,
         client=client,
@@ -353,6 +360,31 @@ async def test_forward_meshcore_to_telegram_false_does_not_send(tmp_path: Path) 
     await built.service.process_message(_message("hello"))
 
     assert built.telegram_client.send_message_calls == []
+    assert "forward_disabled" in " ".join(_bridge_event_metadata(built.connection))
+
+
+@pytest.mark.asyncio
+async def test_runtime_mc_to_tg_override_disables_forward_without_command_regression(
+    tmp_path: Path,
+) -> None:
+    health = BridgeHealthState()
+    health.configure(
+        telegram_enabled=True,
+        forward_telegram_to_meshcore=True,
+        forward_meshcore_to_telegram=True,
+        forward_confirmation_enabled=False,
+    )
+    health.set_runtime_override("meshcore_to_telegram", False)
+    built = _build_bridge(tmp_path, health=health)
+
+    text_result = await built.service.process_message(_message("hello"))
+    command_result = await built.service.process_message(_message("!ping", message_id="cmd-1"))
+
+    assert text_result is None
+    assert command_result is not None
+    assert command_result.text == "pong"
+    assert built.telegram_client.send_message_calls == []
+    assert [sent.text for sent in built.meshcore_transport.sent] == ["pong"]
     assert "forward_disabled" in " ".join(_bridge_event_metadata(built.connection))
 
 

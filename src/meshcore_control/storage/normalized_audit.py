@@ -55,6 +55,10 @@ class NormalizedAuditEventType(StrEnum):
     BRIDGE_MESSAGE_FORWARDED = "bridge.message.forwarded"
     BRIDGE_MESSAGE_IGNORED = "bridge.message.ignored"
     BRIDGE_MESSAGE_FAILED = "bridge.message.failed"
+    BRIDGE_RUNTIME_OVERRIDE_REQUESTED = "bridge.runtime_override.requested"
+    BRIDGE_RUNTIME_OVERRIDE_APPLIED = "bridge.runtime_override.applied"
+    BRIDGE_RUNTIME_OVERRIDE_DENIED = "bridge.runtime_override.denied"
+    BRIDGE_RUNTIME_OVERRIDE_RESET = "bridge.runtime_override.reset"
 
 
 METADATA_ALLOWLIST: dict[NormalizedAuditEventType, frozenset[str]] = {
@@ -139,6 +143,45 @@ METADATA_ALLOWLIST: dict[NormalizedAuditEventType, frozenset[str]] = {
             "reason",
             "size_bytes",
             "truncated",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_REQUESTED: frozenset(
+        {
+            "operation",
+            "target",
+            "requested_value",
+            "transport",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_APPLIED: frozenset(
+        {
+            "operation",
+            "target",
+            "previous_value",
+            "new_value",
+            "override_value",
+            "transport",
+            "result",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_DENIED: frozenset(
+        {
+            "operation",
+            "target",
+            "requested_value",
+            "transport",
+            "reason",
+        }
+    ),
+    NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_RESET: frozenset(
+        {
+            "operation",
+            "target",
+            "previous_value",
+            "new_value",
+            "override_value",
+            "transport",
+            "result",
         }
     ),
 }

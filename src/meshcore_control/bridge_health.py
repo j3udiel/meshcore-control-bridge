@@ -38,9 +38,15 @@ class BridgeHealthSnapshot:
     meshcore_transport_state: str
     telegram_polling_state: str
     telegram_enabled: bool
+    configured_forward_telegram_to_meshcore: bool
+    configured_forward_meshcore_to_telegram: bool
+    configured_forward_confirmation_enabled: bool
     forward_telegram_to_meshcore: bool
     forward_meshcore_to_telegram: bool
     forward_confirmation_enabled: bool
+    override_telegram_to_meshcore: bool | None
+    override_meshcore_to_telegram: bool | None
+    override_confirmation: bool | None
     last_tg_to_mc: datetime | None
     last_mc_to_tg: datetime | None
     last_failure: datetime | None
@@ -76,6 +82,11 @@ class BridgeHealthSnapshot:
                 "telegram_to_meshcore": self.forward_telegram_to_meshcore,
                 "meshcore_to_telegram": self.forward_meshcore_to_telegram,
                 "confirmation": self.forward_confirmation_enabled,
+            },
+            "runtime_overrides": {
+                "telegram_to_meshcore": self.override_telegram_to_meshcore,
+                "meshcore_to_telegram": self.override_meshcore_to_telegram,
+                "confirmation": self.override_confirmation,
             },
             "database": {
                 "audit": self.audit_db_health,
@@ -121,6 +132,14 @@ class BridgeHealthSnapshot:
 
 
 @dataclass(slots=True)
+class RuntimeOverrideChange:
+    target: str
+    previous_value: bool
+    new_value: bool
+    override_value: bool | None
+
+
+@dataclass(slots=True)
 class BridgeHealthState:
     version: str = __version__
     healthcheck_path: str | None = None
@@ -130,9 +149,12 @@ class BridgeHealthState:
     _meshcore_transport_state: str = "disconnected"
     _telegram_polling_state: str = "disabled"
     _telegram_enabled: bool = False
-    _forward_telegram_to_meshcore: bool = False
-    _forward_meshcore_to_telegram: bool = False
-    _forward_confirmation_enabled: bool = False
+    _configured_forward_telegram_to_meshcore: bool = False
+    _configured_forward_meshcore_to_telegram: bool = False
+    _configured_forward_confirmation_enabled: bool = False
+    _override_telegram_to_meshcore: bool | None = None
+    _override_meshcore_to_telegram: bool | None = None
+    _override_confirmation: bool | None = None
     _last_tg_to_mc: datetime | None = None
     _last_mc_to_tg: datetime | None = None
     _last_failure: datetime | None = None
@@ -162,10 +184,76 @@ class BridgeHealthState:
         with self._lock:
             self._telegram_enabled = telegram_enabled
             self._telegram_polling_state = "disconnected" if telegram_enabled else "disabled"
-            self._forward_telegram_to_meshcore = forward_telegram_to_meshcore
-            self._forward_meshcore_to_telegram = forward_meshcore_to_telegram
-            self._forward_confirmation_enabled = forward_confirmation_enabled
+            self._configured_forward_telegram_to_meshcore = forward_telegram_to_meshcore
+            self._configured_forward_meshcore_to_telegram = forward_meshcore_to_telegram
+            self._configured_forward_confirmation_enabled = forward_confirmation_enabled
+            self._override_telegram_to_meshcore = None
+            self._override_meshcore_to_telegram = None
+            self._override_confirmation = None
         self._after_change(previous)
+
+    def set_runtime_override(self, target: str, value: bool) -> RuntimeOverrideChange:
+        previous = self.snapshot()
+        with self._lock:
+            before = self._effective_value_locked(target)
+            if target == "telegram_to_meshcore":
+                self._override_telegram_to_meshcore = value
+            elif target == "meshcore_to_telegram":
+                self._override_meshcore_to_telegram = value
+            elif target == "confirmation":
+                self._override_confirmation = value
+            else:
+                raise ValueError("invalid runtime override target")
+            after = self._effective_value_locked(target)
+            change = RuntimeOverrideChange(
+                target=target,
+                previous_value=before,
+                new_value=after,
+                override_value=value,
+            )
+        self._after_change(previous)
+        return change
+
+    def reset_runtime_overrides(self) -> tuple[RuntimeOverrideChange, ...]:
+        previous = self.snapshot()
+        with self._lock:
+            changes = (
+                RuntimeOverrideChange(
+                    target="telegram_to_meshcore",
+                    previous_value=self._effective_value_locked("telegram_to_meshcore"),
+                    new_value=self._configured_forward_telegram_to_meshcore,
+                    override_value=None,
+                ),
+                RuntimeOverrideChange(
+                    target="meshcore_to_telegram",
+                    previous_value=self._effective_value_locked("meshcore_to_telegram"),
+                    new_value=self._configured_forward_meshcore_to_telegram,
+                    override_value=None,
+                ),
+                RuntimeOverrideChange(
+                    target="confirmation",
+                    previous_value=self._effective_value_locked("confirmation"),
+                    new_value=self._configured_forward_confirmation_enabled,
+                    override_value=None,
+                ),
+            )
+            self._override_telegram_to_meshcore = None
+            self._override_meshcore_to_telegram = None
+            self._override_confirmation = None
+        self._after_change(previous)
+        return changes
+
+    def effective_telegram_to_meshcore(self) -> bool:
+        with self._lock:
+            return self._effective_value_locked("telegram_to_meshcore")
+
+    def effective_meshcore_to_telegram(self) -> bool:
+        with self._lock:
+            return self._effective_value_locked("meshcore_to_telegram")
+
+    def effective_forward_confirmation(self) -> bool:
+        with self._lock:
+            return self._effective_value_locked("confirmation")
 
     def set_meshcore_connected(self, connected: bool) -> None:
         previous = self.snapshot()
@@ -233,9 +321,25 @@ class BridgeHealthState:
                 meshcore_transport_state=self._meshcore_transport_state,
                 telegram_polling_state=self._telegram_polling_state,
                 telegram_enabled=self._telegram_enabled,
-                forward_telegram_to_meshcore=self._forward_telegram_to_meshcore,
-                forward_meshcore_to_telegram=self._forward_meshcore_to_telegram,
-                forward_confirmation_enabled=self._forward_confirmation_enabled,
+                configured_forward_telegram_to_meshcore=(
+                    self._configured_forward_telegram_to_meshcore
+                ),
+                configured_forward_meshcore_to_telegram=(
+                    self._configured_forward_meshcore_to_telegram
+                ),
+                configured_forward_confirmation_enabled=(
+                    self._configured_forward_confirmation_enabled
+                ),
+                forward_telegram_to_meshcore=self._effective_value_locked(
+                    "telegram_to_meshcore"
+                ),
+                forward_meshcore_to_telegram=self._effective_value_locked(
+                    "meshcore_to_telegram"
+                ),
+                forward_confirmation_enabled=self._effective_value_locked("confirmation"),
+                override_telegram_to_meshcore=self._override_telegram_to_meshcore,
+                override_meshcore_to_telegram=self._override_meshcore_to_telegram,
+                override_confirmation=self._override_confirmation,
                 last_tg_to_mc=self._last_tg_to_mc,
                 last_mc_to_tg=self._last_mc_to_tg,
                 last_failure=self._last_failure,
@@ -264,6 +368,11 @@ class BridgeHealthState:
                 "telegram_to_meshcore": snapshot.forward_telegram_to_meshcore,
                 "meshcore_to_telegram": snapshot.forward_meshcore_to_telegram,
                 "telegram_confirmation": snapshot.forward_confirmation_enabled,
+            },
+            "runtime_overrides": {
+                "telegram_to_meshcore": snapshot.override_telegram_to_meshcore,
+                "meshcore_to_telegram": snapshot.override_meshcore_to_telegram,
+                "confirmation": snapshot.override_confirmation,
             },
             "last_tg_to_mc": _optional_rfc3339(snapshot.last_tg_to_mc),
             "last_mc_to_tg": _optional_rfc3339(snapshot.last_mc_to_tg),
@@ -329,6 +438,27 @@ class BridgeHealthState:
         self._last_failure = datetime.now(UTC)
         self._last_failure_reason = _safe_reason(reason)
 
+    def _effective_value_locked(self, target: str) -> bool:
+        if target == "telegram_to_meshcore":
+            return (
+                self._configured_forward_telegram_to_meshcore
+                if self._override_telegram_to_meshcore is None
+                else self._override_telegram_to_meshcore
+            )
+        if target == "meshcore_to_telegram":
+            return (
+                self._configured_forward_meshcore_to_telegram
+                if self._override_meshcore_to_telegram is None
+                else self._override_meshcore_to_telegram
+            )
+        if target == "confirmation":
+            return (
+                self._configured_forward_confirmation_enabled
+                if self._override_confirmation is None
+                else self._override_confirmation
+            )
+        raise ValueError("invalid runtime override target")
+
     def _after_change(self, previous: BridgeHealthSnapshot | None) -> None:
         self.write_healthcheck()
         callback: Callable[[bool], None] | None
@@ -342,15 +472,28 @@ class BridgeHealthState:
 
 def render_bridge_status(snapshot: BridgeHealthSnapshot, *, compact: bool = False) -> str:
     telegram = _telegram_state(snapshot)
+    tg_to_mc = _on_off_override(
+        snapshot.forward_telegram_to_meshcore,
+        snapshot.override_telegram_to_meshcore,
+        compact=compact,
+    )
+    mc_to_tg = _on_off_override(
+        snapshot.forward_meshcore_to_telegram,
+        snapshot.override_meshcore_to_telegram,
+        compact=compact,
+    )
+    confirmation = _on_off_override(
+        snapshot.forward_confirmation_enabled,
+        snapshot.override_confirmation,
+        compact=compact,
+    )
     if compact:
         return "\n".join(
             [
                 f"Bridge {snapshot.version}",
                 f"MC:{_short_connected(snapshot.meshcore_transport_state)} "
                 f"TG:{_short_telegram(telegram)} CH:{_channel_unknown()}",
-                f"T2M:{_on_off(snapshot.forward_telegram_to_meshcore)} "
-                f"M2T:{_on_off(snapshot.forward_meshcore_to_telegram)} "
-                f"CF:{_on_off(snapshot.forward_confirmation_enabled)}",
+                f"T2M:{tg_to_mc} M2T:{mc_to_tg} CF:{confirmation}",
                 f"DB A:{snapshot.audit_db_health} T:{snapshot.telegram_db_health}",
                 f"Err:{snapshot.last_failure_reason}",
             ]
@@ -361,9 +504,9 @@ def render_bridge_status(snapshot: BridgeHealthSnapshot, *, compact: bool = Fals
             f"MeshCore: {snapshot.meshcore_transport_state}",
             f"Telegram: {telegram}",
             "Channel: {channel}",
-            f"TG->MC: {_on_off(snapshot.forward_telegram_to_meshcore)}",
-            f"MC->TG: {_on_off(snapshot.forward_meshcore_to_telegram)}",
-            f"TG confirm: {_on_off(snapshot.forward_confirmation_enabled)}",
+            f"TG->MC: {tg_to_mc}",
+            f"MC->TG: {mc_to_tg}",
+            f"TG confirm: {confirmation}",
             f"Audit DB: {snapshot.audit_db_health}",
             f"Telegram DB: {snapshot.telegram_db_health}",
             f"Last error: {snapshot.last_failure_reason}",
@@ -482,6 +625,13 @@ def _telegram_state(snapshot: BridgeHealthSnapshot) -> str:
 
 def _on_off(value: bool) -> str:
     return "on" if value else "off"
+
+
+def _on_off_override(value: bool, override: bool | None, *, compact: bool = False) -> str:
+    rendered = _on_off(value)
+    if override is None:
+        return rendered
+    return f"{rendered}*" if compact else f"{rendered} (override)"
 
 
 def _short_connected(value: str) -> str:

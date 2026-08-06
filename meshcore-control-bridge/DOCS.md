@@ -251,6 +251,28 @@ health, and the last safe failure reason. It never includes tokens, raw Telegram
 chat IDs or user IDs, MeshCore sender IDs, pubkeys, message IDs, message text,
 entity IDs, or filesystem paths.
 
+Admin users can apply temporary runtime overrides with:
+
+```text
+!bridge tg2mc on
+!bridge tg2mc off
+!bridge mc2tg on
+!bridge mc2tg off
+!bridge confirm on
+!bridge confirm off
+!bridge reset
+```
+
+These controls are kept only in memory. They do not modify `options.json`,
+`config.yaml`, `audit.db`, or `telegram.db`, and they reset when the App
+restarts. `!bridge reset` clears all temporary overrides and returns to the App
+configuration. In compact MeshCore status, `*` marks a temporary override, for
+example `T2M:off*`.
+
+The authorized Telegram user is `readonly` by default. To allow these admin
+controls from Telegram, set `telegram.authorized_user_role: admin` explicitly.
+Being in the authorized private chat is not treated as admin by itself.
+
 The `!last` command reports readonly last-activity counters from the same
 in-memory `BridgeHealthState`. Telegram receives a detailed response; MeshCore
 receives a compact LoRa-friendly response. It reports relative last Telegram to
@@ -302,6 +324,11 @@ status fields:
     "telegram_to_meshcore": true,
     "meshcore_to_telegram": true,
     "confirmation": false
+  },
+  "runtime_overrides": {
+    "telegram_to_meshcore": null,
+    "meshcore_to_telegram": null,
+    "confirmation": null
   },
   "database": {
     "audit": "ok",
@@ -570,6 +597,7 @@ release and without replacing the stable App image.
       bot_token_file: /data/telegram.bot_token
       allowed_private_chat_id: "<id>"
       allowed_user_id: "<id>"
+      authorized_user_role: readonly
       meshcore_channel_index: 1
       forward_meshcore_to_telegram: true
       forward_telegram_to_meshcore: true

@@ -81,6 +81,7 @@ class AppTelegramOptions:
     bot_token_file: str = "/data/telegram.bot_token"
     allowed_private_chat_id: str = ""
     allowed_user_id: str = ""
+    authorized_user_role: Role = Role.readonly
     meshcore_channel_index: int = 1
     forward_meshcore_to_telegram: bool = True
     forward_telegram_to_meshcore: bool = True
@@ -231,6 +232,7 @@ class HomeAssistantAppOptions:
                 bot_token_file=self.telegram.bot_token_file,
                 allowed_private_chat_id=self.telegram.allowed_private_chat_id,
                 allowed_user_id=self.telegram.allowed_user_id,
+                authorized_user_role=self.telegram.authorized_user_role,
                 meshcore_channel_index=self.telegram.meshcore_channel_index,
                 forward_meshcore_to_telegram=self.telegram.forward_meshcore_to_telegram,
                 forward_telegram_to_meshcore=self.telegram.forward_telegram_to_meshcore,
@@ -387,6 +389,7 @@ def _parse_telegram(value: object) -> AppTelegramOptions:
         bot_token_file=str(data.get("bot_token_file", "/data/telegram.bot_token") or ""),
         allowed_private_chat_id=str(data.get("allowed_private_chat_id", "") or "").strip(),
         allowed_user_id=str(data.get("allowed_user_id", "") or "").strip(),
+        authorized_user_role=parse_role(str(data.get("authorized_user_role", "readonly"))),
         meshcore_channel_index=meshcore_channel_index,
         forward_meshcore_to_telegram=bool(data.get("forward_meshcore_to_telegram", True)),
         forward_telegram_to_meshcore=bool(data.get("forward_telegram_to_meshcore", True)),

@@ -104,6 +104,7 @@ def test_telegram_config_loads_disabled_by_default(tmp_path) -> None:
     assert config.telegram.enabled is False
     assert config.telegram.bot_token_file == "/data/telegram.bot_token"
     assert config.telegram.meshcore_channel_index == 1
+    assert config.telegram.authorized_user_role is Role.readonly
     assert config.telegram.send_forward_confirmation is False
     assert config.health.home_assistant_events_enabled is True
     assert config.health.heartbeat_seconds == 60
@@ -204,6 +205,21 @@ telegram:
     config = load_config(str(config_file))
 
     assert config.telegram.send_forward_confirmation is True
+
+
+def test_telegram_authorized_user_role_can_be_admin(tmp_path) -> None:
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        """
+telegram:
+  authorized_user_role: admin
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.telegram.authorized_user_role is Role.admin
 
 
 @pytest.mark.parametrize("value", ['"false"', '"true"', "null"])
