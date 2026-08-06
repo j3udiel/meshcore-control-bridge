@@ -131,3 +131,30 @@ def test_homeassistant_app_preserves_base_entrypoint() -> None:
 
     assert "ENTRYPOINT" not in dockerfile
     assert 'CMD ["/run.sh"]' in dockerfile
+
+
+def test_homeassistant_health_integration_docs_cover_template_entities() -> None:
+    docs = (ROOT / "meshcore-control-bridge/DOCS.md").read_text()
+
+    assert "Home Assistant Health Integration" in docs
+    assert "schema_version" in docs
+    assert "supported public API for registering native" in docs
+    assert "entities" in docs
+    for unique_id in [
+        "meshcore_control_bridge_status",
+        "meshcore_control_bridge_version",
+        "meshcore_control_bridge_uptime",
+        "meshcore_control_bridge_meshcore",
+        "meshcore_control_bridge_telegram",
+        "meshcore_control_bridge_last_tg_to_mc",
+        "meshcore_control_bridge_last_mc_to_tg",
+        "meshcore_control_bridge_last_error",
+        "meshcore_control_bridge_tg_to_mc_success",
+        "meshcore_control_bridge_tg_to_mc_failed",
+        "meshcore_control_bridge_mc_to_tg_success",
+        "meshcore_control_bridge_mc_to_tg_failed",
+        "meshcore_control_bridge_commands_processed",
+        "meshcore_control_bridge_audit_db",
+        "meshcore_control_bridge_telegram_db",
+    ]:
+        assert unique_id in docs
