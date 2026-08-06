@@ -7,6 +7,8 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-08-06
+
 ### Added
 
 - Add temporary admin-only `!bridge` runtime controls for Telegram to MeshCore
