@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,9 @@ from meshcore_control.auth.roles import Role, parse_role
 
 WEATHER_STATUS_DEFAULT_LABEL = "Exterior"
 WEATHER_STATUS_LABEL_MAX_LENGTH = 32
+SERVER_ALIAS_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
+MAX_HOME_STATUS_ENTITIES = 50
+MAX_SERVER_ENTRIES = 20
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +75,58 @@ class WeatherStatusConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HomeStatusAlarmConfig:
+    entity_id: str = ""
+    door_entities: tuple[str, ...] = ()
+    motion_entities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class HomeStatusHomeConfig:
+    person_entities: tuple[str, ...] = ()
+    presence_entities: tuple[str, ...] = ()
+    door_entities: tuple[str, ...] = ()
+    light_entities: tuple[str, ...] = ()
+    temperature_entity: str = ""
+    humidity_entity: str = ""
+    ups_battery_entity: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class HomeStatusServerEntryConfig:
+    alias: str
+    name: str
+    availability_entity: str = ""
+    cpu_entity: str = ""
+    memory_entity: str = ""
+    disk_entity: str = ""
+    temperature_entity: str = ""
+    health_entity: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class HomeStatusServersConfig:
+    entries: tuple[HomeStatusServerEntryConfig, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class HomeStatusNetworkConfig:
+    internet_entity: str = ""
+    router_entity: str = ""
+    dns_entity: str = ""
+    home_assistant_entity: str = ""
+    additional_entities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class HomeStatusConfig:
+    alarm: HomeStatusAlarmConfig = field(default_factory=HomeStatusAlarmConfig)
+    home: HomeStatusHomeConfig = field(default_factory=HomeStatusHomeConfig)
+    servers: HomeStatusServersConfig = field(default_factory=HomeStatusServersConfig)
+    network: HomeStatusNetworkConfig = field(default_factory=HomeStatusNetworkConfig)
+
+
+@dataclass(frozen=True, slots=True)
 class TelegramConfig:
     enabled: bool = False
     bot_token_import: str = ""
@@ -108,6 +164,7 @@ class AppConfig:
     entities: dict[str, dict[str, str]] = field(default_factory=dict)
     status_entities: dict[str, StatusEntityConfig] = field(default_factory=dict)
     weather_status: WeatherStatusConfig = field(default_factory=WeatherStatusConfig)
+    home_status: HomeStatusConfig = field(default_factory=HomeStatusConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -173,6 +230,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         entities=dict(file_data.get("entities", {})),
         status_entities=_parse_status_entities(file_data.get("status", {}).get("entities", {})),
         weather_status=_parse_weather_status(file_data.get("weather_status", {})),
+        home_status=_parse_home_status(file_data.get("home_status", {})),
         telegram=_parse_telegram(file_data.get("telegram", {})),
         health=_parse_health(file_data.get("health", {})),
         servers=dict(file_data.get("servers", {})),
@@ -259,6 +317,178 @@ def validate_weather_status_label(value: object) -> str:
     if len(label) > WEATHER_STATUS_LABEL_MAX_LENGTH:
         raise ValueError("weather_status.label must be 32 characters or fewer")
     return label
+
+
+def _parse_home_status(raw_home_status: object) -> HomeStatusConfig:
+    if raw_home_status in (None, ""):
+        return HomeStatusConfig()
+    if not isinstance(raw_home_status, dict):
+        raise ValueError("home_status must be a mapping")
+    alarm_data = _mapping(raw_home_status.get("alarm", {}), "home_status.alarm")
+    home_data = _mapping(raw_home_status.get("home", {}), "home_status.home")
+    servers_data = _mapping(raw_home_status.get("servers", {}), "home_status.servers")
+    network_data = _mapping(raw_home_status.get("network", {}), "home_status.network")
+    return HomeStatusConfig(
+        alarm=HomeStatusAlarmConfig(
+            entity_id=_entity_id(alarm_data.get("entity_id", ""), "home_status.alarm.entity_id"),
+            door_entities=_entity_list(
+                alarm_data.get("door_entities", []),
+                "home_status.alarm.door_entities",
+            ),
+            motion_entities=_entity_list(
+                alarm_data.get("motion_entities", []),
+                "home_status.alarm.motion_entities",
+            ),
+        ),
+        home=HomeStatusHomeConfig(
+            person_entities=_entity_list(
+                home_data.get("person_entities", []),
+                "home_status.home.person_entities",
+            ),
+            presence_entities=_entity_list(
+                home_data.get("presence_entities", []),
+                "home_status.home.presence_entities",
+            ),
+            door_entities=_entity_list(
+                home_data.get("door_entities", []),
+                "home_status.home.door_entities",
+            ),
+            light_entities=_entity_list(
+                home_data.get("light_entities", []),
+                "home_status.home.light_entities",
+            ),
+            temperature_entity=_entity_id(
+                home_data.get("temperature_entity", ""),
+                "home_status.home.temperature_entity",
+            ),
+            humidity_entity=_entity_id(
+                home_data.get("humidity_entity", ""),
+                "home_status.home.humidity_entity",
+            ),
+            ups_battery_entity=_entity_id(
+                home_data.get("ups_battery_entity", ""),
+                "home_status.home.ups_battery_entity",
+            ),
+        ),
+        servers=HomeStatusServersConfig(
+            entries=_parse_home_status_servers(servers_data.get("entries", []))
+        ),
+        network=HomeStatusNetworkConfig(
+            internet_entity=_entity_id(
+                network_data.get("internet_entity", ""),
+                "home_status.network.internet_entity",
+            ),
+            router_entity=_entity_id(
+                network_data.get("router_entity", ""),
+                "home_status.network.router_entity",
+            ),
+            dns_entity=_entity_id(
+                network_data.get("dns_entity", ""),
+                "home_status.network.dns_entity",
+            ),
+            home_assistant_entity=_entity_id(
+                network_data.get("home_assistant_entity", ""),
+                "home_status.network.home_assistant_entity",
+            ),
+            additional_entities=_entity_list(
+                network_data.get("additional_entities", []),
+                "home_status.network.additional_entities",
+            ),
+        ),
+    )
+
+
+def _parse_home_status_servers(value: object) -> tuple[HomeStatusServerEntryConfig, ...]:
+    if not isinstance(value, list):
+        raise ValueError("home_status.servers.entries must be a list")
+    if len(value) > MAX_SERVER_ENTRIES:
+        raise ValueError("home_status.servers.entries must contain 20 entries or fewer")
+    entries: list[HomeStatusServerEntryConfig] = []
+    aliases: set[str] = set()
+    for item in value:
+        data = _mapping(item, "home_status.servers.entries item")
+        alias = str(data.get("alias", "") or "").strip()
+        if not SERVER_ALIAS_RE.fullmatch(alias):
+            raise ValueError(
+                "home_status.servers.entries alias must use lowercase letters, numbers, - or _"
+            )
+        if alias in aliases:
+            raise ValueError("home_status.servers.entries aliases must be unique")
+        aliases.add(alias)
+        name = _safe_label(data.get("name", alias), f"home_status.servers.{alias}.name")
+        entries.append(
+            HomeStatusServerEntryConfig(
+                alias=alias,
+                name=name or alias,
+                availability_entity=_entity_id(
+                    data.get("availability_entity", ""),
+                    f"home_status.servers.{alias}.availability_entity",
+                ),
+                cpu_entity=_entity_id(
+                    data.get("cpu_entity", ""),
+                    f"home_status.servers.{alias}.cpu_entity",
+                ),
+                memory_entity=_entity_id(
+                    data.get("memory_entity", ""),
+                    f"home_status.servers.{alias}.memory_entity",
+                ),
+                disk_entity=_entity_id(
+                    data.get("disk_entity", ""),
+                    f"home_status.servers.{alias}.disk_entity",
+                ),
+                temperature_entity=_entity_id(
+                    data.get("temperature_entity", ""),
+                    f"home_status.servers.{alias}.temperature_entity",
+                ),
+                health_entity=_entity_id(
+                    data.get("health_entity", ""),
+                    f"home_status.servers.{alias}.health_entity",
+                ),
+            )
+        )
+    return tuple(entries)
+
+
+def _entity_list(value: object, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    if len(value) > MAX_HOME_STATUS_ENTITIES:
+        raise ValueError(f"{field_name} must contain {MAX_HOME_STATUS_ENTITIES} items or fewer")
+    return tuple(_entity_id(item, field_name) for item in value if _entity_id(item, field_name))
+
+
+def _entity_id(value: object, field_name: str) -> str:
+    if value in (None, ""):
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    entity_id = value.strip()
+    if any(character in entity_id for character in ("\n", "\r")):
+        raise ValueError(f"{field_name} must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in entity_id):
+        raise ValueError(f"{field_name} must not contain control characters")
+    if len(entity_id) > 128:
+        raise ValueError(f"{field_name} must be 128 characters or fewer")
+    return entity_id
+
+
+def _safe_label(value: object, field_name: str) -> str:
+    label = str(value or "").strip()
+    if any(character in label for character in ("\n", "\r")):
+        raise ValueError(f"{field_name} must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in label):
+        raise ValueError(f"{field_name} must not contain control characters")
+    if len(label) > 48:
+        raise ValueError(f"{field_name} must be 48 characters or fewer")
+    return label
+
+
+def _mapping(value: object, name: str) -> dict[str, Any]:
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{name} must be a mapping")
+    return dict(value)
 
 
 def _parse_telegram(raw_telegram: dict[str, Any]) -> TelegramConfig:

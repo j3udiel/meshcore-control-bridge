@@ -11,6 +11,9 @@ configuration:
   weather_status:
     name: Outdoor status
     description: Optional read-only Home Assistant entities used by !exterior.
+  home_status:
+    name: Home status
+    description: Allowlisted read-only Home Assistant entities used by !alarma, !casa, !servers and !red.
   telegram:
     name: Telegram
     description: Disabled-by-default Telegram Bot API support for readonly commands and optional normal-text forwarding with MeshCore.

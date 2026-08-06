@@ -21,6 +21,27 @@ options:
     temperature_entity: ""
     humidity_entity: ""
     label: "Exterior"
+  home_status:
+    alarm:
+      entity_id: ""
+      door_entities: []
+      motion_entities: []
+    home:
+      person_entities: []
+      presence_entities: []
+      door_entities: []
+      light_entities: []
+      temperature_entity: ""
+      humidity_entity: ""
+      ups_battery_entity: ""
+    servers:
+      entries: []
+    network:
+      internet_entity: ""
+      router_entity: ""
+      dns_entity: ""
+      home_assistant_entity: ""
+      additional_entities: []
   telegram:
     enabled: false
     bot_token_import: ""
@@ -67,6 +88,42 @@ schema:
     temperature_entity: "str?"
     humidity_entity: "str?"
     label: "str"
+  home_status:
+    alarm:
+      entity_id: "str?"
+      door_entities:
+        - "str"
+      motion_entities:
+        - "str"
+    home:
+      person_entities:
+        - "str"
+      presence_entities:
+        - "str"
+      door_entities:
+        - "str"
+      light_entities:
+        - "str"
+      temperature_entity: "str?"
+      humidity_entity: "str?"
+      ups_battery_entity: "str?"
+    servers:
+      entries:
+        - alias: "match(^[a-z0-9_-]{1,32}$)"
+          name: "str"
+          availability_entity: "str?"
+          cpu_entity: "str?"
+          memory_entity: "str?"
+          disk_entity: "str?"
+          temperature_entity: "str?"
+          health_entity: "str?"
+    network:
+      internet_entity: "str?"
+      router_entity: "str?"
+      dns_entity: "str?"
+      home_assistant_entity: "str?"
+      additional_entities:
+        - "str"
   telegram:
     enabled: bool
     bot_token_import: "password?"

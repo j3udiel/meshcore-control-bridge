@@ -142,6 +142,11 @@ Only these commands are currently implemented:
 !estado
 !estado ha
 !exterior
+!alarma
+!casa
+!servers
+!servers <alias>
+!red
 !bridge
 !bridge tg2mc on|off
 !bridge mc2tg on|off
@@ -165,6 +170,13 @@ and any read-only status entities configured in YAML.
 Home Assistant. It does not hardcode sensor IDs; set `weather_status` in the
 App options or YAML configuration. If `temperature_entity` is empty, it replies
 that the command is not configured.
+
+`!alarma`, `!casa`, `!servers`, and `!red` are readonly Home Assistant status
+commands. They only query entity IDs that the operator configured under
+`home_status`; the command text never accepts arbitrary entity IDs, hostnames,
+IPs, services, or actions. They do not arm alarms, toggle entities, restart
+servers, run shell commands, ping hosts, or perform external network probes.
+Responses omit configured entity IDs and raw identifiers.
 
 `!bridge` returns a readonly operational summary for the originating transport.
 Admin users can use `!bridge tg2mc on|off`, `!bridge mc2tg on|off`,
@@ -310,6 +322,35 @@ telegram:
   inbound_forwarding_rate_limit:
     messages: 20
     window_seconds: 60
+
+home_status:
+  alarm:
+    entity_id: ""
+    door_entities: []
+    motion_entities: []
+  home:
+    person_entities: []
+    presence_entities: []
+    door_entities: []
+    light_entities: []
+    temperature_entity: ""
+    humidity_entity: ""
+    ups_battery_entity: ""
+  servers:
+    entries:
+      - alias: principal
+        name: Servidor principal
+        availability_entity: binary_sensor.servidor_principal_online
+        cpu_entity: sensor.servidor_principal_cpu
+        memory_entity: sensor.servidor_principal_memory
+        disk_entity: sensor.servidor_principal_disk
+        temperature_entity: sensor.servidor_principal_temperature
+  network:
+    internet_entity: ""
+    router_entity: ""
+    dns_entity: ""
+    home_assistant_entity: ""
+    additional_entities: []
 ```
 
 Prefer storing `HA_TOKEN` in an environment variable instead of YAML.

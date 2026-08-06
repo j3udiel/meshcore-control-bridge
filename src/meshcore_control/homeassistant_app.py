@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,12 @@ from meshcore_control.config import (
     AppConfig,
     HealthConfig,
     HomeAssistantConfig,
+    HomeStatusAlarmConfig,
+    HomeStatusConfig,
+    HomeStatusHomeConfig,
+    HomeStatusNetworkConfig,
+    HomeStatusServerEntryConfig,
+    HomeStatusServersConfig,
     MeshCoreConfig,
     RateLimitConfig,
     SecurityConfig,
@@ -75,6 +82,58 @@ class AppWeatherStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class AppHomeStatusAlarm:
+    entity_id: str = ""
+    door_entities: tuple[str, ...] = ()
+    motion_entities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AppHomeStatusHome:
+    person_entities: tuple[str, ...] = ()
+    presence_entities: tuple[str, ...] = ()
+    door_entities: tuple[str, ...] = ()
+    light_entities: tuple[str, ...] = ()
+    temperature_entity: str = ""
+    humidity_entity: str = ""
+    ups_battery_entity: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AppHomeStatusServerEntry:
+    alias: str
+    name: str
+    availability_entity: str = ""
+    cpu_entity: str = ""
+    memory_entity: str = ""
+    disk_entity: str = ""
+    temperature_entity: str = ""
+    health_entity: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AppHomeStatusServers:
+    entries: tuple[AppHomeStatusServerEntry, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AppHomeStatusNetwork:
+    internet_entity: str = ""
+    router_entity: str = ""
+    dns_entity: str = ""
+    home_assistant_entity: str = ""
+    additional_entities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AppHomeStatus:
+    alarm: AppHomeStatusAlarm = field(default_factory=AppHomeStatusAlarm)
+    home: AppHomeStatusHome = field(default_factory=AppHomeStatusHome)
+    servers: AppHomeStatusServers = field(default_factory=AppHomeStatusServers)
+    network: AppHomeStatusNetwork = field(default_factory=AppHomeStatusNetwork)
+
+
+@dataclass(frozen=True, slots=True)
 class AppTelegramOptions:
     enabled: bool = False
     bot_token_import: str = ""
@@ -111,6 +170,7 @@ class HomeAssistantAppOptions:
     authorized_senders: tuple[AppAuthorizedSender, ...] = ()
     status_entities: tuple[AppStatusEntity, ...] = ()
     weather_status: AppWeatherStatus = field(default_factory=AppWeatherStatus)
+    home_status: AppHomeStatus = field(default_factory=AppHomeStatus)
     telegram: AppTelegramOptions = field(default_factory=AppTelegramOptions)
     health: AppHealthOptions = field(default_factory=AppHealthOptions)
     rate_limit: RateLimitConfig = field(default_factory=RateLimitConfig)
@@ -148,6 +208,7 @@ class HomeAssistantAppOptions:
             authorized_senders=_parse_authorized_senders(authorized_senders_value),
             status_entities=_parse_status_entities(payload.get("status_entities", [])),
             weather_status=_parse_weather_status(payload.get("weather_status", {})),
+            home_status=_parse_home_status(payload.get("home_status", {})),
             telegram=_parse_telegram(payload.get("telegram", {})),
             health=_parse_health(payload.get("health", {})),
             rate_limit=RateLimitConfig(
@@ -225,6 +286,44 @@ class HomeAssistantAppOptions:
                 temperature_entity=self.weather_status.temperature_entity,
                 humidity_entity=self.weather_status.humidity_entity,
                 label=self.weather_status.label,
+            ),
+            home_status=HomeStatusConfig(
+                alarm=HomeStatusAlarmConfig(
+                    entity_id=self.home_status.alarm.entity_id,
+                    door_entities=self.home_status.alarm.door_entities,
+                    motion_entities=self.home_status.alarm.motion_entities,
+                ),
+                home=HomeStatusHomeConfig(
+                    person_entities=self.home_status.home.person_entities,
+                    presence_entities=self.home_status.home.presence_entities,
+                    door_entities=self.home_status.home.door_entities,
+                    light_entities=self.home_status.home.light_entities,
+                    temperature_entity=self.home_status.home.temperature_entity,
+                    humidity_entity=self.home_status.home.humidity_entity,
+                    ups_battery_entity=self.home_status.home.ups_battery_entity,
+                ),
+                servers=HomeStatusServersConfig(
+                    entries=tuple(
+                        HomeStatusServerEntryConfig(
+                            alias=entry.alias,
+                            name=entry.name,
+                            availability_entity=entry.availability_entity,
+                            cpu_entity=entry.cpu_entity,
+                            memory_entity=entry.memory_entity,
+                            disk_entity=entry.disk_entity,
+                            temperature_entity=entry.temperature_entity,
+                            health_entity=entry.health_entity,
+                        )
+                        for entry in self.home_status.servers.entries
+                    )
+                ),
+                network=HomeStatusNetworkConfig(
+                    internet_entity=self.home_status.network.internet_entity,
+                    router_entity=self.home_status.network.router_entity,
+                    dns_entity=self.home_status.network.dns_entity,
+                    home_assistant_entity=self.home_status.network.home_assistant_entity,
+                    additional_entities=self.home_status.network.additional_entities,
+                ),
             ),
             telegram=TelegramConfig(
                 enabled=self.telegram.enabled,
@@ -310,6 +409,171 @@ def _parse_weather_status(value: object) -> AppWeatherStatus:
         humidity_entity=str(data.get("humidity_entity", "") or "").strip(),
         label=validate_weather_status_label(data.get("label", "Exterior")),
     )
+
+
+def _parse_home_status(value: object) -> AppHomeStatus:
+    if value in (None, ""):
+        return AppHomeStatus()
+    data = _mapping(value, "home_status")
+    alarm = _mapping(data.get("alarm", {}), "home_status.alarm")
+    home = _mapping(data.get("home", {}), "home_status.home")
+    servers = _mapping(data.get("servers", {}), "home_status.servers")
+    network = _mapping(data.get("network", {}), "home_status.network")
+    return AppHomeStatus(
+        alarm=AppHomeStatusAlarm(
+            entity_id=_entity_id(alarm.get("entity_id", ""), "home_status.alarm.entity_id"),
+            door_entities=_entity_list(
+                alarm.get("door_entities", []),
+                "home_status.alarm.door_entities",
+            ),
+            motion_entities=_entity_list(
+                alarm.get("motion_entities", []),
+                "home_status.alarm.motion_entities",
+            ),
+        ),
+        home=AppHomeStatusHome(
+            person_entities=_entity_list(
+                home.get("person_entities", []),
+                "home_status.home.person_entities",
+            ),
+            presence_entities=_entity_list(
+                home.get("presence_entities", []),
+                "home_status.home.presence_entities",
+            ),
+            door_entities=_entity_list(
+                home.get("door_entities", []),
+                "home_status.home.door_entities",
+            ),
+            light_entities=_entity_list(
+                home.get("light_entities", []),
+                "home_status.home.light_entities",
+            ),
+            temperature_entity=_entity_id(
+                home.get("temperature_entity", ""),
+                "home_status.home.temperature_entity",
+            ),
+            humidity_entity=_entity_id(
+                home.get("humidity_entity", ""),
+                "home_status.home.humidity_entity",
+            ),
+            ups_battery_entity=_entity_id(
+                home.get("ups_battery_entity", ""),
+                "home_status.home.ups_battery_entity",
+            ),
+        ),
+        servers=AppHomeStatusServers(
+            entries=_parse_home_status_servers(servers.get("entries", []))
+        ),
+        network=AppHomeStatusNetwork(
+            internet_entity=_entity_id(
+                network.get("internet_entity", ""),
+                "home_status.network.internet_entity",
+            ),
+            router_entity=_entity_id(
+                network.get("router_entity", ""),
+                "home_status.network.router_entity",
+            ),
+            dns_entity=_entity_id(network.get("dns_entity", ""), "home_status.network.dns_entity"),
+            home_assistant_entity=_entity_id(
+                network.get("home_assistant_entity", ""),
+                "home_status.network.home_assistant_entity",
+            ),
+            additional_entities=_entity_list(
+                network.get("additional_entities", []),
+                "home_status.network.additional_entities",
+            ),
+        ),
+    )
+
+
+def _parse_home_status_servers(value: object) -> tuple[AppHomeStatusServerEntry, ...]:
+    if not isinstance(value, list):
+        raise ValueError("home_status.servers.entries must be a list")
+    if len(value) > 20:
+        raise ValueError("home_status.servers.entries must contain 20 entries or fewer")
+    entries: list[AppHomeStatusServerEntry] = []
+    aliases: set[str] = set()
+    for item in value:
+        data = _mapping(item, "home_status.servers.entries item")
+        alias = str(data.get("alias", "") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", alias):
+            raise ValueError(
+                "home_status.servers.entries alias must use lowercase letters, numbers, - or _"
+            )
+        if alias in aliases:
+            raise ValueError("home_status.servers.entries aliases must be unique")
+        aliases.add(alias)
+        entries.append(
+            AppHomeStatusServerEntry(
+                alias=alias,
+                name=_safe_label(data.get("name", alias), f"home_status.servers.{alias}.name")
+                or alias,
+                availability_entity=_entity_id(
+                    data.get("availability_entity", ""),
+                    f"home_status.servers.{alias}.availability_entity",
+                ),
+                cpu_entity=_entity_id(
+                    data.get("cpu_entity", ""),
+                    f"home_status.servers.{alias}.cpu_entity",
+                ),
+                memory_entity=_entity_id(
+                    data.get("memory_entity", ""),
+                    f"home_status.servers.{alias}.memory_entity",
+                ),
+                disk_entity=_entity_id(
+                    data.get("disk_entity", ""),
+                    f"home_status.servers.{alias}.disk_entity",
+                ),
+                temperature_entity=_entity_id(
+                    data.get("temperature_entity", ""),
+                    f"home_status.servers.{alias}.temperature_entity",
+                ),
+                health_entity=_entity_id(
+                    data.get("health_entity", ""),
+                    f"home_status.servers.{alias}.health_entity",
+                ),
+            )
+        )
+    return tuple(entries)
+
+
+def _entity_list(value: object, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    if len(value) > 50:
+        raise ValueError(f"{field_name} must contain 50 items or fewer")
+    entities: list[str] = []
+    for item in value:
+        entity_id = _entity_id(item, field_name)
+        if entity_id:
+            entities.append(entity_id)
+    return tuple(entities)
+
+
+def _entity_id(value: object, field_name: str) -> str:
+    if value in (None, ""):
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    entity_id = value.strip()
+    if any(character in entity_id for character in ("\n", "\r")):
+        raise ValueError(f"{field_name} must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in entity_id):
+        raise ValueError(f"{field_name} must not contain control characters")
+    if len(entity_id) > 128:
+        raise ValueError(f"{field_name} must be 128 characters or fewer")
+    return entity_id
+
+
+def _safe_label(value: object, field_name: str) -> str:
+    label = str(value or "").strip()
+    if any(character in label for character in ("\n", "\r")):
+        raise ValueError(f"{field_name} must not contain newlines")
+    if any(ord(character) < 32 or ord(character) == 127 for character in label):
+        raise ValueError(f"{field_name} must not contain control characters")
+    if len(label) > 48:
+        raise ValueError(f"{field_name} must be 48 characters or fewer")
+    return label
 
 
 def _parse_telegram(value: object) -> AppTelegramOptions:

@@ -50,6 +50,7 @@ class CommandRouter:
         result = "ignored"
         error: str | None = None
         registered_command = False
+        command_audit_metadata: dict[str, object] = {}
         try:
             definition = self.registry.resolve(command_name)
             if definition is None:
@@ -102,6 +103,7 @@ class CommandRouter:
                 )
             logger.info("Command accepted command=%s authorization=allowed", definition.name)
             result_text = await definition.handler(context, parsed.args)
+            command_audit_metadata = dict(context.audit_metadata)
             result = "succeeded"
             health = self.services.get("bridge_health")
             if isinstance(health, BridgeHealthState):
@@ -122,6 +124,7 @@ class CommandRouter:
                     duration_ms=duration_ms,
                     error=error,
                     registered_command=registered_command,
+                    extra_metadata=command_audit_metadata,
                 )
             else:
                 self._audit_legacy_command(
@@ -197,6 +200,7 @@ class CommandRouter:
         duration_ms: int,
         error: str | None,
         registered_command: bool,
+        extra_metadata: dict[str, object] | None = None,
     ) -> AuditTrail:
         try:
             if self.audit_flow is None:
@@ -209,6 +213,7 @@ class CommandRouter:
                 duration_ms=duration_ms,
                 error=error,
                 registered_command=registered_command,
+                extra_metadata=extra_metadata,
             )
         except sqlite3.Error as exc:
             logger.warning(

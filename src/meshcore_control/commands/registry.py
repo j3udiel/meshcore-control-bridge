@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from meshcore_control.auth.authorization import AuthorizedUser
@@ -18,6 +18,7 @@ class CommandContext:
     user: AuthorizedUser
     services: dict[str, object]
     audit_trail: AuditTrail | None = None
+    audit_metadata: dict[str, object] = field(default_factory=dict)
 
 
 CommandHandler = Callable[[CommandContext, list[str]], Awaitable[str]]
@@ -58,7 +59,7 @@ class CommandRegistry:
         for definition in self._commands.values():
             if role >= definition.minimum_role:
                 unique[definition.name] = definition
-        return sorted(unique.values(), key=lambda item: (item.group, item.name))
+        return sorted(unique.values(), key=_command_sort_key)
 
     def group_commands(self, group: str, role: Role) -> list[CommandDefinition]:
         return [
@@ -66,3 +67,7 @@ class CommandRegistry:
             for definition in self.visible_commands(role)
             if definition.group == group.lower() or definition.name == group.lower()
         ]
+
+
+def _command_sort_key(item: CommandDefinition) -> tuple[int, str, str]:
+    return (0 if item.group == "system" else 1, item.group, item.name)

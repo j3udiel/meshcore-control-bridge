@@ -6,6 +6,7 @@ import logging
 from contextlib import suppress
 
 from meshcore_control.adapters.homeassistant import HomeAssistantClient
+from meshcore_control.adapters.homeassistant_state import HomeAssistantStateReader
 from meshcore_control.adapters.homeassistant_ws import HomeAssistantWebSocketClient
 from meshcore_control.app import BridgeService
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer, RoomPolicy
@@ -57,13 +58,15 @@ def build_service(
     if bridge_health is not None:
         services["bridge_health"] = bridge_health
     if config.homeassistant.base_url and config.homeassistant.token:
-        services["homeassistant"] = HomeAssistantClient(
+        homeassistant_client = HomeAssistantClient(
             base_url=config.homeassistant.base_url,
             token=config.homeassistant.token,
             verify_tls=config.homeassistant.verify_tls,
             timeout_seconds=config.homeassistant.timeout_seconds,
             entity_aliases=config.entities.get("all", {}),
         )
+        services["homeassistant"] = homeassistant_client
+        services["home_status_reader"] = HomeAssistantStateReader(homeassistant_client)
     legacy_audit = AuditRepository(connection)
     normalized_settings = normalized_audit_settings or NormalizedAuditSettings.from_environment()
     normalized_repository = NormalizedAuditRepository(connection, normalized_settings)
