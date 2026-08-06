@@ -68,6 +68,7 @@ def test_homeassistant_app_config_is_restricted() -> None:
         "bot_token_file": "/data/telegram.bot_token",
         "allowed_private_chat_id": "",
         "allowed_user_id": "",
+        "authorized_user_role": "readonly",
         "meshcore_channel_index": 1,
         "forward_meshcore_to_telegram": True,
         "forward_telegram_to_meshcore": True,
@@ -86,6 +87,9 @@ def test_homeassistant_app_config_is_restricted() -> None:
         "label": "str",
     }
     assert config["schema"]["telegram"]["bot_token_import"] == "password?"
+    assert config["schema"]["telegram"]["authorized_user_role"] == (
+        "list(readonly|home|operator|admin)"
+    )
     assert config["schema"]["telegram"]["meshcore_channel_index"] == "int(1,255)"
     assert config["schema"]["telegram"]["max_meshcore_message_length"] == "int(1,1000)"
     assert config["schema"]["telegram"]["max_telegram_message_length"] == "int(1,4096)"

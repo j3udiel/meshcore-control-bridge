@@ -91,12 +91,17 @@ async def test_health_event_payload_contract(tmp_path: Path) -> None:
         "meshcore": "connected",
         "telegram": "connected",
         "channel": 7,
-        "forwarding": {
-            "telegram_to_meshcore": True,
-            "meshcore_to_telegram": True,
-            "confirmation": False,
-        },
-        "database": {
+            "forwarding": {
+                "telegram_to_meshcore": True,
+                "meshcore_to_telegram": True,
+                "confirmation": False,
+            },
+            "runtime_overrides": {
+                "telegram_to_meshcore": None,
+                "meshcore_to_telegram": None,
+                "confirmation": None,
+            },
+            "database": {
             "audit": "ok",
             "telegram": "ok",
         },

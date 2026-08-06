@@ -12,8 +12,20 @@ from meshcore_control.bridge_health import (
 from meshcore_control.commands.help import render_help
 from meshcore_control.commands.registry import CommandContext, CommandDefinition, CommandRegistry
 from meshcore_control.config import AppConfig
+from meshcore_control.storage.audit_flow import AuditFlow
+from meshcore_control.storage.normalized_audit import NormalizedAuditEventType
 
 _EXTERIOR_RESPONSE_MAX_CHARS = 160
+_BRIDGE_OVERRIDE_TARGETS = {
+    "tg2mc": "telegram_to_meshcore",
+    "mc2tg": "meshcore_to_telegram",
+    "confirm": "confirmation",
+}
+_BRIDGE_OVERRIDE_LABELS = {
+    "tg2mc": ("Telegram -> MeshCore", "T2M"),
+    "mc2tg": ("MeshCore -> Telegram", "M2T"),
+    "confirm": ("Confirmación Telegram", "CF"),
+}
 
 
 class HomeAssistantStatusClient(Protocol):
@@ -81,8 +93,14 @@ def register(registry: CommandRegistry) -> None:
             name="bridge",
             aliases=(),
             group="system",
-            usage="!bridge",
-            help_text="Muestra estado interno seguro del bridge.",
+            usage=(
+                "!bridge\n!bridge tg2mc on|off\n!bridge mc2tg on|off\n"
+                "!bridge confirm on|off\n!bridge reset"
+            ),
+            help_text=(
+                "Muestra estado interno seguro del bridge y permite overrides admin "
+                "temporales."
+            ),
             minimum_role=Role.readonly,
             confirmation_required=False,
             handler=bridge,
@@ -168,6 +186,8 @@ async def bridge(context: CommandContext, args: list[str]) -> str:
     health = context.services.get("bridge_health")
     if not isinstance(health, BridgeHealthState):
         return "Bridge: N/D"
+    if args:
+        return _handle_bridge_admin(context, health, args)
     config = context.services.get("config")
     events_enabled = (
         config.health.home_assistant_events_enabled if isinstance(config, AppConfig) else None
@@ -181,6 +201,154 @@ async def bridge(context: CommandContext, args: list[str]) -> str:
         health_events_enabled=events_enabled,
         heartbeat_seconds=heartbeat_seconds,
     )
+
+
+def _handle_bridge_admin(
+    context: CommandContext,
+    health: BridgeHealthState,
+    args: list[str],
+) -> str:
+    compact = context.message.transport != "telegram"
+    operation = args[0].lower()
+    if operation == "reset" and len(args) == 1:
+        _audit_bridge_override(
+            context,
+            NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_REQUESTED,
+            {
+                "operation": "reset",
+                "target": "all",
+                "requested_value": "configured",
+                "transport": context.message.transport,
+            },
+        )
+        if context.user.role < Role.admin:
+            _audit_bridge_override(
+                context,
+                NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_DENIED,
+                {
+                    "operation": "reset",
+                    "target": "all",
+                    "requested_value": "configured",
+                    "transport": context.message.transport,
+                    "reason": "insufficient_role",
+                },
+            )
+            return "No autorizado."
+        changes = health.reset_runtime_overrides()
+        for change in changes:
+            _audit_bridge_override(
+                context,
+                NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_RESET,
+                _change_metadata(
+                    operation="reset",
+                    target=change.target,
+                    transport=context.message.transport,
+                    previous_value=change.previous_value,
+                    new_value=change.new_value,
+                    override_value=change.override_value,
+                ),
+            )
+        return "Overrides eliminados." if compact else (
+            "Overrides temporales eliminados. Se usa la configuración de la App."
+        )
+    if len(args) != 2 or operation not in _BRIDGE_OVERRIDE_TARGETS:
+        return _bridge_usage(compact)
+    value_token = args[1].lower()
+    if value_token not in {"on", "off"}:
+        return _bridge_usage(compact)
+    target = _BRIDGE_OVERRIDE_TARGETS[operation]
+    requested = value_token == "on"
+    _audit_bridge_override(
+        context,
+        NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_REQUESTED,
+        {
+            "operation": "set",
+            "target": target,
+            "requested_value": requested,
+            "transport": context.message.transport,
+        },
+    )
+    if context.user.role < Role.admin:
+        _audit_bridge_override(
+            context,
+            NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_DENIED,
+            {
+                "operation": "set",
+                "target": target,
+                "requested_value": requested,
+                "transport": context.message.transport,
+                "reason": "insufficient_role",
+            },
+        )
+        return "No autorizado."
+    change = health.set_runtime_override(target, requested)
+    _audit_bridge_override(
+        context,
+        NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_APPLIED,
+        _change_metadata(
+            operation="set",
+            target=change.target,
+            transport=context.message.transport,
+            previous_value=change.previous_value,
+            new_value=change.new_value,
+            override_value=change.override_value,
+        ),
+    )
+    long_label, short_label = _BRIDGE_OVERRIDE_LABELS[operation]
+    state = (
+        ("activada" if requested else "desactivada")
+        if operation == "confirm"
+        else ("activado" if requested else "desactivado")
+    )
+    if compact:
+        return f"{short_label}:{'on' if requested else 'off'}*"
+    return f"{long_label}: {state} hasta reinicio."
+
+
+def _bridge_usage(compact: bool) -> str:
+    if compact:
+        return "Uso: !bridge tg2mc|mc2tg|confirm on|off"
+    return "Uso: !bridge tg2mc|mc2tg|confirm on|off o !bridge reset"
+
+
+def _change_metadata(
+    *,
+    operation: str,
+    target: str,
+    transport: str,
+    previous_value: bool,
+    new_value: bool,
+    override_value: bool | None,
+) -> dict[str, object]:
+    return {
+        "operation": operation,
+        "target": target,
+        "previous_value": previous_value,
+        "new_value": new_value,
+        "override_value": override_value,
+        "transport": transport,
+        "result": "applied",
+    }
+
+
+def _audit_bridge_override(
+    context: CommandContext,
+    event_type: NormalizedAuditEventType,
+    metadata: dict[str, object],
+) -> None:
+    audit_flow = context.services.get("audit_flow")
+    if not isinstance(audit_flow, AuditFlow) or context.audit_trail is None:
+        return
+    try:
+        context.audit_trail = audit_flow.runtime_override_event(
+            context.audit_trail,
+            event_type=event_type,
+            metadata=metadata,
+        )
+    except Exception:
+        health = context.services.get("bridge_health")
+        if isinstance(health, BridgeHealthState):
+            health.set_audit_db_health("degraded", reason="storage_error")
 
 
 async def last(context: CommandContext, args: list[str]) -> str:

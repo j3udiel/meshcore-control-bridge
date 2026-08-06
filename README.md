@@ -143,6 +143,10 @@ Only these commands are currently implemented:
 !estado ha
 !exterior
 !bridge
+!bridge tg2mc on|off
+!bridge mc2tg on|off
+!bridge confirm on|off
+!bridge reset
 !last
 ```
 
@@ -163,6 +167,11 @@ App options or YAML configuration. If `temperature_entity` is empty, it replies
 that the command is not configured.
 
 `!bridge` returns a readonly operational summary for the originating transport.
+Admin users can use `!bridge tg2mc on|off`, `!bridge mc2tg on|off`,
+`!bridge confirm on|off`, and `!bridge reset` to apply temporary in-memory
+runtime overrides. These controls do not modify App options, `config.yaml`, or
+SQLite, and they are lost on restart. In compact MeshCore output, `*` marks an
+active temporary override.
 
 `!last` returns readonly last-activity counters and relative timestamps from the
 in-memory bridge health state. These counters reset when the App restarts; this
@@ -285,6 +294,7 @@ telegram:
   bot_token_file: /data/telegram.bot_token
   allowed_private_chat_id: ""
   allowed_user_id: ""
+  authorized_user_role: readonly
   meshcore_channel_index: 1
   forward_meshcore_to_telegram: true
   forward_telegram_to_meshcore: true

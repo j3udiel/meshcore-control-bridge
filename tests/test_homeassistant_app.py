@@ -53,6 +53,7 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
                     "bot_token_file": "/data/telegram.bot_token",
                     "allowed_private_chat_id": "",
                     "allowed_user_id": "",
+                    "authorized_user_role": "readonly",
                     "meshcore_channel_index": 1,
                     "forward_meshcore_to_telegram": True,
                     "forward_telegram_to_meshcore": True,
@@ -94,6 +95,7 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert config.telegram.enabled is False
     assert config.telegram.bot_token_file == "/data/telegram.bot_token"
     assert config.telegram.meshcore_channel_index == 1
+    assert config.telegram.authorized_user_role is Role.readonly
     assert config.telegram.message_prefix == "TG: "
     assert config.telegram.meshcore_to_telegram_prefix == "MC: "
     assert config.telegram.send_forward_confirmation is False
@@ -104,6 +106,27 @@ def test_homeassistant_app_options_load_valid_file(tmp_path) -> None:
     assert options.health.heartbeat_seconds == 60
     assert config.health.home_assistant_events_enabled is True
     assert config.health.heartbeat_seconds == 60
+
+
+def test_homeassistant_app_telegram_role_can_be_admin_without_touching_senders() -> None:
+    options = HomeAssistantAppOptions.from_mapping(
+        {
+            "authorized_senders": [
+                {"pubkey_prefix": "abcdef123456", "name": "mesh", "role": "operator"}
+            ],
+            "telegram": {"authorized_user_role": "admin"},
+        }
+    )
+    runtime = HomeAssistantRuntime(
+        rest_base_url=SUPERVISOR_REST_BASE_URL,
+        websocket_url=SUPERVISOR_WEBSOCKET_URL,
+        token="supervisor-token-not-real",
+    )
+
+    config = options.to_app_config(runtime)
+
+    assert options.authorized_senders[0].role is Role.operator
+    assert config.telegram.authorized_user_role is Role.admin
 
 
 def test_homeassistant_app_rejects_public_channel_zero() -> None:

@@ -87,7 +87,12 @@ class CommandRouter:
                 )
                 return "No autorizado."
 
-            context = CommandContext(message=message, user=user, services=self.services)
+            context = CommandContext(
+                message=message,
+                user=user,
+                services=self.services,
+                audit_trail=audit_trail,
+            )
             if self.audit_flow is not None and audit_trail is not None:
                 audit_trail = self._audit_command_authorization(
                     audit_trail,

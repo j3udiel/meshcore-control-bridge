@@ -27,6 +27,7 @@ options:
     bot_token_file: /data/telegram.bot_token
     allowed_private_chat_id: ""
     allowed_user_id: ""
+    authorized_user_role: readonly
     meshcore_channel_index: 1
     forward_meshcore_to_telegram: true
     forward_telegram_to_meshcore: true
@@ -72,6 +73,7 @@ schema:
     bot_token_file: "str?"
     allowed_private_chat_id: "str?"
     allowed_user_id: "str?"
+    authorized_user_role: "list(readonly|home|operator|admin)"
     meshcore_channel_index: "int(1,255)"
     forward_meshcore_to_telegram: bool
     forward_telegram_to_meshcore: bool

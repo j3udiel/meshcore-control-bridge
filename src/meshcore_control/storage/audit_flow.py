@@ -255,6 +255,26 @@ class AuditFlow:
         )
         return self._record_normalized_only(trail, event)
 
+    def runtime_override_event(
+        self,
+        trail: AuditTrail,
+        *,
+        event_type: NormalizedAuditEventType,
+        metadata: dict[str, object],
+    ) -> AuditTrail:
+        allowed_types = {
+            NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_REQUESTED,
+            NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_APPLIED,
+            NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_DENIED,
+            NormalizedAuditEventType.BRIDGE_RUNTIME_OVERRIDE_RESET,
+        }
+        if event_type not in allowed_types:
+            raise ValueError("invalid runtime override audit event")
+        if not self.normalized_enabled:
+            return trail
+        event = self._event(trail, event_type, metadata=metadata)
+        return self._record_normalized_only(trail, event)
+
     def _event(
         self,
         trail: AuditTrail,

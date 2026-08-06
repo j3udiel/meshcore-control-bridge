@@ -72,6 +72,7 @@ def build_service(
         legacy=legacy_audit,
         normalized=normalized_repository,
     )
+    services["audit_flow"] = audit_flow
     router = CommandRouter(
         registry=registry,
         authorizer=Authorizer(
@@ -136,7 +137,7 @@ def _authorized_users(config: AppConfig) -> dict[str, AuthorizedUser]:
         users[TELEGRAM_SENDER_ID] = AuthorizedUser(
             sender_id=TELEGRAM_SENDER_ID,
             name="telegram-authorized-user",
-            role=Role.readonly,
+            role=config.telegram.authorized_user_role,
         )
     return users
 

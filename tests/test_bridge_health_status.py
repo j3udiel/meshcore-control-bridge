@@ -39,6 +39,7 @@ def _service(
     health: BridgeHealthState,
     transport_name: str = "homeassistant-meshcore",
     channel_index: int = 1,
+    role: Role = Role.readonly,
 ) -> tuple[BridgeService, FakeTransport]:
     connection = connect_database(str(tmp_path / "audit.db"))
     registry = build_registry()
@@ -52,7 +53,7 @@ def _service(
     router = CommandRouter(
         registry=registry,
         authorizer=Authorizer(
-            {sender_id: AuthorizedUser(sender_id, "tester", Role.readonly)},
+            {sender_id: AuthorizedUser(sender_id, "tester", role)},
             room_policies={
                 room_id: RoomPolicy(
                     room_id=room_id,
@@ -178,6 +179,101 @@ def test_bridge_command_from_telegram_returns_full_status_to_telegram(tmp_path: 
     assert "Channel: 1" in outbound.text
     assert "TG confirm: off" in outbound.text
     assert transport.sent[-1].reply_target == _message(transport="telegram").reply_target
+
+
+def test_bridge_admin_can_disable_tg_to_mc_temporarily(tmp_path: Path) -> None:
+    health = _configured_health(tmp_path)
+    service, _transport = _service(tmp_path, health=health, role=Role.admin)
+
+    outbound = asyncio.run(service.process_message(_message(text="!bridge tg2mc off")))
+
+    assert outbound is not None
+    assert outbound.text == "T2M:off*"
+    snapshot = health.snapshot()
+    assert snapshot.forward_telegram_to_meshcore is False
+    assert snapshot.configured_forward_telegram_to_meshcore is True
+    assert snapshot.override_telegram_to_meshcore is False
+
+
+def test_bridge_admin_can_reset_temporary_overrides(tmp_path: Path) -> None:
+    health = _configured_health(tmp_path)
+    health.set_runtime_override("telegram_to_meshcore", False)
+    health.set_runtime_override("meshcore_to_telegram", False)
+    service, _transport = _service(
+        tmp_path,
+        health=health,
+        transport_name="telegram",
+        role=Role.admin,
+    )
+
+    outbound = asyncio.run(
+        service.process_message(_message(transport="telegram", text="!bridge reset"))
+    )
+
+    assert outbound is not None
+    assert "Overrides temporales eliminados" in outbound.text
+    snapshot = health.snapshot()
+    assert snapshot.forward_telegram_to_meshcore is True
+    assert snapshot.forward_meshcore_to_telegram is True
+    assert snapshot.override_telegram_to_meshcore is None
+    assert snapshot.override_meshcore_to_telegram is None
+
+
+@pytest.mark.parametrize("role", [Role.readonly, Role.home, Role.operator])
+def test_bridge_modification_subcommands_require_admin(tmp_path: Path, role: Role) -> None:
+    health = _configured_health(tmp_path)
+    service, _transport = _service(tmp_path, health=health, role=role)
+
+    outbound = asyncio.run(service.process_message(_message(text="!bridge mc2tg off")))
+
+    assert outbound is not None
+    assert outbound.text == "No autorizado."
+    assert health.snapshot().forward_meshcore_to_telegram is True
+    assert health.snapshot().override_meshcore_to_telegram is None
+
+
+def test_telegram_authorized_user_is_not_admin_implicitly(tmp_path: Path) -> None:
+    health = _configured_health(tmp_path)
+    service, _transport = _service(tmp_path, health=health, transport_name="telegram")
+
+    outbound = asyncio.run(
+        service.process_message(_message(transport="telegram", text="!bridge tg2mc off"))
+    )
+
+    assert outbound is not None
+    assert outbound.text == "No autorizado."
+    assert health.snapshot().override_telegram_to_meshcore is None
+
+
+def test_bridge_status_marks_runtime_overrides(tmp_path: Path) -> None:
+    health = _configured_health(tmp_path)
+    health.set_runtime_override("telegram_to_meshcore", False)
+    health.set_runtime_override("confirmation", True)
+    service, _transport = _service(tmp_path, health=health, transport_name="telegram")
+
+    outbound = asyncio.run(service.process_message(_message(transport="telegram")))
+
+    assert outbound is not None
+    assert "TG->MC: off (override)" in outbound.text
+    assert "TG confirm: on (override)" in outbound.text
+
+
+def test_bridge_health_payload_includes_runtime_overrides(tmp_path: Path) -> None:
+    health = _configured_health(tmp_path)
+    health.set_runtime_override("meshcore_to_telegram", False)
+
+    snapshot = health.snapshot()
+    payload = snapshot.event_payload(channel_index=1)
+    healthcheck_payload = health.health_payload()
+
+    assert payload["schema_version"] == 1
+    assert payload["forwarding"]["meshcore_to_telegram"] is False
+    assert payload["runtime_overrides"] == {
+        "telegram_to_meshcore": None,
+        "meshcore_to_telegram": False,
+        "confirmation": None,
+    }
+    assert healthcheck_payload["runtime_overrides"]["meshcore_to_telegram"] is False
 
 
 def test_last_command_from_telegram_returns_detailed_activity(tmp_path: Path) -> None:

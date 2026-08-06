@@ -15,6 +15,9 @@ configuration:
     name: Telegram
     description: Disabled-by-default Telegram Bot API support for readonly commands and optional normal-text forwarding with MeshCore.
     fields:
+      authorized_user_role:
+        name: Telegram user role
+        description: Role assigned to the authorized private Telegram user. Defaults to readonly; admin enables temporary controls.
       send_forward_confirmation:
         name: Confirm forwarded messages
         description: Send a Telegram confirmation after successfully forwarding a message to MeshCore.

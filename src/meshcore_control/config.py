@@ -77,6 +77,7 @@ class TelegramConfig:
     bot_token_file: str = "/data/telegram.bot_token"
     allowed_private_chat_id: str = ""
     allowed_user_id: str = ""
+    authorized_user_role: Role = Role.readonly
     meshcore_channel_index: int = 1
     forward_meshcore_to_telegram: bool = True
     forward_telegram_to_meshcore: bool = True
@@ -284,6 +285,14 @@ def _parse_telegram(raw_telegram: dict[str, Any]) -> TelegramConfig:
             os.getenv("TELEGRAM_ALLOWED_USER_ID", raw_telegram.get("allowed_user_id", ""))
             or ""
         ).strip(),
+        authorized_user_role=parse_role(
+            str(
+                os.getenv(
+                    "TELEGRAM_AUTHORIZED_USER_ROLE",
+                    raw_telegram.get("authorized_user_role", "readonly"),
+                )
+            )
+        ),
         meshcore_channel_index=_env_int(
             "TELEGRAM_MESHCORE_CHANNEL_INDEX",
             raw_telegram.get("meshcore_channel_index", 1),
