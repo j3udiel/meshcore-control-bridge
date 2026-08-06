@@ -333,10 +333,12 @@ include tokens, raw chat IDs, user IDs, sender IDs, message IDs, message text, o
 entity IDs.
 
 When enabled, the App also fires the Home Assistant event
-`meshcore_control_bridge_health` with the same redacted state. Native Home
-Assistant entities, MQTT discovery, and an HTTP endpoint are not included in this
-phase; use trigger-based template sensors from `DOCS.md` if you want entities in
-Home Assistant.
+`meshcore_control_bridge_health` with the same redacted state and
+`schema_version: 1`. Native Home Assistant entities, MQTT discovery, and an HTTP
+endpoint are not included in this phase because the App does not use unsupported
+Home Assistant internals or write Home Assistant's database directly. Use the
+trigger-based template sensors from `DOCS.md` to create stable readonly sensors
+and binary sensors in Home Assistant.
 
 ## Local Home Assistant URL for Offline Use
 

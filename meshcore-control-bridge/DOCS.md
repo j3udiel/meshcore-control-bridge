@@ -265,6 +265,8 @@ local diagnostics. The file may report `status: degraded` while the process
 stays healthy; degraded bridge state is visible without forcing a Supervisor
 restart.
 
+### Home Assistant Health Integration
+
 The App can also publish the redacted health snapshot as a Home Assistant event:
 
 ```yaml
@@ -273,17 +275,62 @@ health:
   heartbeat_seconds: 60
 ```
 
-The event type is `meshcore_control_bridge_health`. It is emitted after startup,
-after relevant state changes, and on the configured heartbeat. The event payload
-contains only safe status fields: version, uptime, MeshCore and Telegram state,
-channel index, forwarding flags, database health, counters, last activity
-timestamps, and a sanitized last-error reason. It never includes tokens, chat
-IDs, user IDs, sender IDs, pubkeys, message IDs, message text, correlation IDs,
-paths, configured entity IDs, or command contents.
+Native Home Assistant entities are not created directly in this phase. A Home
+Assistant App does not have a supported public API for registering native
+entities, and the bridge must not use Home Assistant internals, write directly
+to the Home Assistant database, create stale entities without cleanup, require
+MQTT infrastructure, or add a separate HACS integration here. The supported
+surface for this release is the Home Assistant WebSocket event bus plus
+trigger-based template sensors that you control in Home Assistant.
 
-Native Home Assistant entities are not created in this phase because the App is
-not a Home Assistant integration. To expose sensors, add trigger-based template
-sensors to your own Home Assistant configuration:
+The event type is `meshcore_control_bridge_health`. It is emitted after startup,
+after relevant state changes, and on the configured heartbeat. Rapid changes are
+coalesced, identical functional snapshots are skipped, and heartbeat publication
+refreshes state at the configured interval. The event payload contains only safe
+status fields:
+
+```json
+{
+  "schema_version": 1,
+  "status": "ok",
+  "version": "0.1.18",
+  "uptime_seconds": 123,
+  "meshcore": "connected",
+  "telegram": "connected",
+  "channel": 1,
+  "forwarding": {
+    "telegram_to_meshcore": true,
+    "meshcore_to_telegram": true,
+    "confirmation": false
+  },
+  "database": {
+    "audit": "ok",
+    "telegram": "ok"
+  },
+  "counters": {
+    "tg_to_mc_success": 0,
+    "tg_to_mc_failed": 0,
+    "mc_to_tg_success": 0,
+    "mc_to_tg_failed": 0,
+    "commands_processed": 0
+  },
+  "last_activity": {
+    "telegram_to_meshcore": null,
+    "meshcore_to_telegram": null
+  },
+  "last_error": {
+    "timestamp": null,
+    "reason": "none"
+  }
+}
+```
+
+It never includes tokens, chat IDs, user IDs, sender IDs, pubkeys, message IDs,
+message text, correlation IDs, paths, configured entity IDs, command contents,
+or database contents.
+
+To expose entities, add trigger-based template sensors to your own Home
+Assistant configuration:
 
 Trigger-based template sensors do not have state until Home Assistant receives
 the first `meshcore_control_bridge_health` event after they are loaded. After
@@ -301,6 +348,7 @@ template:
         unique_id: meshcore_control_bridge_status
         state: "{{ trigger.event.data.status }}"
         attributes:
+          schema_version: "{{ trigger.event.data.schema_version }}"
           version: "{{ trigger.event.data.version }}"
           meshcore: "{{ trigger.event.data.meshcore }}"
           telegram: "{{ trigger.event.data.telegram }}"
@@ -310,9 +358,29 @@ template:
           confirmation: "{{ trigger.event.data.forwarding.confirmation }}"
           audit_db: "{{ trigger.event.data.database.audit }}"
           telegram_db: "{{ trigger.event.data.database.telegram }}"
+          uptime_seconds: "{{ trigger.event.data.uptime_seconds }}"
+          last_tg_to_mc: "{{ trigger.event.data.last_activity.telegram_to_meshcore }}"
+          last_mc_to_tg: "{{ trigger.event.data.last_activity.meshcore_to_telegram }}"
+          last_error_at: "{{ trigger.event.data.last_error.timestamp }}"
+          last_error_reason: "{{ trigger.event.data.last_error.reason }}"
+          tg_to_mc_success: "{{ trigger.event.data.counters.tg_to_mc_success }}"
+          tg_to_mc_failed: "{{ trigger.event.data.counters.tg_to_mc_failed }}"
+          mc_to_tg_success: "{{ trigger.event.data.counters.mc_to_tg_success }}"
+          mc_to_tg_failed: "{{ trigger.event.data.counters.mc_to_tg_failed }}"
+          commands_processed: "{{ trigger.event.data.counters.commands_processed }}"
       - name: MeshCore Control Bridge Version
         unique_id: meshcore_control_bridge_version
         state: "{{ trigger.event.data.version }}"
+      - name: MeshCore Control Bridge Uptime
+        unique_id: meshcore_control_bridge_uptime
+        state: "{{ trigger.event.data.uptime_seconds }}"
+        unit_of_measurement: s
+      - name: MeshCore Control Bridge MeshCore
+        unique_id: meshcore_control_bridge_meshcore
+        state: "{{ trigger.event.data.meshcore }}"
+      - name: MeshCore Control Bridge Telegram
+        unique_id: meshcore_control_bridge_telegram
+        state: "{{ trigger.event.data.telegram }}"
       - name: MeshCore Control Bridge Last TG to MC
         unique_id: meshcore_control_bridge_last_tg_to_mc
         state: "{{ trigger.event.data.last_activity.telegram_to_meshcore or 'none' }}"
@@ -341,6 +409,12 @@ template:
       - name: MeshCore Control Bridge Healthy
         unique_id: meshcore_control_bridge_healthy
         state: "{{ trigger.event.data.status == 'ok' }}"
+      - name: MeshCore Control Bridge Audit DB
+        unique_id: meshcore_control_bridge_audit_db
+        state: "{{ trigger.event.data.database.audit == 'ok' }}"
+      - name: MeshCore Control Bridge Telegram DB
+        unique_id: meshcore_control_bridge_telegram_db
+        state: "{{ trigger.event.data.database.telegram == 'ok' }}"
 ```
 
 Recommended automations:
@@ -404,9 +478,16 @@ type: entities
 title: MeshCore Control Bridge
 entities:
   - entity: binary_sensor.meshcore_control_bridge_healthy
+  - entity: binary_sensor.meshcore_control_bridge_audit_db
+  - entity: binary_sensor.meshcore_control_bridge_telegram_db
   - entity: sensor.meshcore_control_bridge_status
   - entity: sensor.meshcore_control_bridge_version
+  - entity: sensor.meshcore_control_bridge_uptime
+  - entity: sensor.meshcore_control_bridge_meshcore
+  - entity: sensor.meshcore_control_bridge_telegram
   - entity: sensor.meshcore_control_bridge_last_error
+  - entity: sensor.meshcore_control_bridge_last_tg_to_mc
+  - entity: sensor.meshcore_control_bridge_last_mc_to_tg
   - entity: sensor.meshcore_control_bridge_tg_to_mc_success
   - entity: sensor.meshcore_control_bridge_tg_to_mc_failed
   - entity: sensor.meshcore_control_bridge_mc_to_tg_success

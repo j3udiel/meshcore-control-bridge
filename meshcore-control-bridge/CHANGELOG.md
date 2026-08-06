@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add `schema_version` to `meshcore_control_bridge_health` event payloads.
+- Document the Home Assistant health integration decision and full
+  trigger-based template sensor set for bridge status, transport state,
+  counters, last activity, and database health.
+- Keep Home Assistant health exposure readonly through redacted events and
+  user-managed template sensors; no native entity internals, MQTT discovery, or
+  direct Home Assistant database writes are added.
+
 ## 0.1.18
 
 - Add readonly `!last` command for Telegram and MeshCore.

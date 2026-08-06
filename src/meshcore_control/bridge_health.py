@@ -65,6 +65,7 @@ class BridgeHealthSnapshot:
 
     def event_payload(self, *, channel_index: int) -> dict[str, Any]:
         return {
+            "schema_version": 1,
             "status": self.status,
             "version": self.version,
             "uptime_seconds": self.uptime_seconds,
