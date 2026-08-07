@@ -416,9 +416,10 @@ def test_response_failure_is_audited(tmp_path) -> None:
         transport=FailingTransport(),
     )
 
-    with pytest.raises(RuntimeError):
-        asyncio.run(built.service.process_message(message()))
+    outbound = asyncio.run(built.service.process_message(message()))
 
+    assert outbound is not None
+    assert outbound.text == "pong"
     rows = audit_events(built.connection)
     assert rows[-1]["event_type"] == "response.failed"
     assert PRIVATE_TOKEN not in " ".join(str(value) for row in rows for value in row)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from asyncio import TimeoutError as AsyncTimeoutError
 from typing import Protocol
 
 from meshcore_control.auth.roles import Role
@@ -37,6 +38,7 @@ class BridgeService:
         channel_index: int,
         normal_text_forwarder: NormalTextForwarder | None = None,
         bridge_health: BridgeHealthState | None = None,
+        meshcore_response_max_bytes: int = 180,
     ) -> None:
         self.transport = transport
         self.router = router
@@ -46,6 +48,7 @@ class BridgeService:
         self.channel_index = channel_index
         self.normal_text_forwarder = normal_text_forwarder
         self.bridge_health = bridge_health
+        self.meshcore_response_max_bytes = meshcore_response_max_bytes
         self._closed = False
 
     async def process_message(self, message: InboundMessage) -> OutboundMessage | None:
@@ -75,9 +78,9 @@ class BridgeService:
             )
             try:
                 await self.transport.send(outbound)
-            except Exception:
-                self._audit_response_failed(audit_trail)
-                raise
+            except Exception as exc:
+                self._handle_response_send_failure(audit_trail, exc)
+                return outbound
             self._audit_response_sent(audit_trail, outbound)
             return outbound
         response_text = await self.router.handle(message, audit_trail=audit_trail)
@@ -101,15 +104,15 @@ class BridgeService:
         outbound = OutboundMessage(
             destination=message.sender_id,
             channel_index=self.channel_index,
-            text=_trim_lora_response(response_text),
+            text=_trim_lora_response(response_text, max_bytes=self.meshcore_response_max_bytes),
             reply_to=message.message_id,
             reply_target=message.reply_target,
         )
         try:
             await self.transport.send(outbound)
-        except Exception:
-            self._audit_response_failed(audit_trail)
-            raise
+        except Exception as exc:
+            self._handle_response_send_failure(audit_trail, exc)
+            return outbound
         self._audit_response_sent(audit_trail, outbound)
         logger.info("Response sent channel=%s", outbound.channel_index)
         return outbound
@@ -208,6 +211,17 @@ class BridgeService:
         if self.bridge_health is not None:
             self.bridge_health.set_audit_db_health("degraded", reason=_sqlite_error_reason(exc))
 
+    def _handle_response_send_failure(
+        self,
+        audit_trail: AuditTrail | None,
+        exc: Exception,
+    ) -> None:
+        reason = _transport_error_reason(exc)
+        if self.bridge_health is not None:
+            self.bridge_health.record_failure(reason)
+        logger.warning("Response send failed reason=%s", reason)
+        self._audit_response_failed(audit_trail)
+
 
 def _sqlite_error_reason(exc: sqlite3.Error) -> str:
     message = str(exc).lower()
@@ -216,8 +230,35 @@ def _sqlite_error_reason(exc: sqlite3.Error) -> str:
     return exc.__class__.__name__
 
 
-def _trim_lora_response(text: str, max_chars: int = 480) -> str:
+def _transport_error_reason(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError | AsyncTimeoutError):
+        return "transport_timeout"
+    message = str(exc).lower()
+    if "disconnect" in message or "closed" in message:
+        return "websocket_disconnected"
+    if "service" in message:
+        return "transport_service_error"
+    return "transport_error"
+
+
+def _trim_lora_response(text: str, max_bytes: int = 180) -> str:
     normalized = "\n".join(line.rstrip() for line in text.strip().splitlines())
-    if len(normalized) <= max_chars:
+    if len(normalized.encode("utf-8")) <= max_bytes:
         return normalized
-    return normalized[: max_chars - 18].rstrip() + "\n... pide detalle"
+    suffix = "\n... pide detalle"
+    suffix_bytes = suffix.encode("utf-8")
+    if max_bytes <= len(suffix_bytes):
+        return _truncate_utf8(normalized, max_bytes)
+    body = _truncate_utf8(normalized, max_bytes - len(suffix_bytes)).rstrip()
+    while body and len((body + suffix).encode("utf-8")) > max_bytes:
+        body = body[:-1].rstrip()
+    return body + suffix
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    if max_bytes <= 0:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")

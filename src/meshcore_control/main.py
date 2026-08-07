@@ -98,6 +98,7 @@ def build_service(
         ),
         channel_index=config.meshcore.channel_index,
         bridge_health=bridge_health,
+        meshcore_response_max_bytes=config.telegram.max_meshcore_message_length,
     )
 
 
