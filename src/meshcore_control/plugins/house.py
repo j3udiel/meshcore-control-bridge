@@ -81,7 +81,8 @@ async def alarma(context: CommandContext, args: list[str]) -> str:
                         f"Doors:{','.join(opened) if opened else 'none'}",
                         f"Motion:{','.join(active_motion) if active_motion else 'none'}",
                     ]
-                )
+                ),
+                max_bytes=services.meshcore_max_bytes,
             )
         ago = last_changed(alarm_state, compact=True)
         lines = [
@@ -91,7 +92,7 @@ async def alarma(context: CommandContext, args: list[str]) -> str:
         ]
         if ago:
             lines.append(f"Ago:{ago}")
-        return fit_lora("\n".join(lines))
+        return fit_lora("\n".join(lines), max_bytes=services.meshcore_max_bytes)
 
     lines = [f"Alarma: {alarm_label(alarm_state)}"]
     if opened:
@@ -164,7 +165,7 @@ async def casa(context: CommandContext, args: list[str]) -> str:
             tail.append(f"UPS:{format_percent(ups, compact=True)}")
         if tail:
             lines.append(" ".join(tail))
-        return fit_lora("\n".join(lines))
+        return fit_lora("\n".join(lines), max_bytes=services.meshcore_max_bytes)
 
     lines = ["Casa"]
     if alarm_state is not None:

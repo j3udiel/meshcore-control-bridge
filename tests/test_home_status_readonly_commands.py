@@ -26,7 +26,13 @@ from meshcore_control.config import (
     load_config,
 )
 from meshcore_control.homeassistant_app import HomeAssistantAppOptions
-from meshcore_control.models import InboundMessage, MessageIdentity, RoomRef, SenderIdentity
+from meshcore_control.models import (
+    InboundMessage,
+    MessageIdentity,
+    OutboundMessage,
+    RoomRef,
+    SenderIdentity,
+)
 from meshcore_control.plugins import build_registry
 from meshcore_control.security.deduplication import Deduplicator
 from meshcore_control.security.rate_limit import RateLimiter
@@ -52,8 +58,11 @@ class FakeHA:
     errors: set[str] | None = None
     delay: float = 0
     call_service_called: bool = False
+    get_state_calls: int = 0
+    get_states_calls: int = 0
 
     async def get_state(self, entity_or_alias: str) -> dict[str, Any]:
+        self.get_state_calls += 1
         if self.delay:
             await asyncio.sleep(self.delay)
         if self.errors and entity_or_alias in self.errors:
@@ -62,9 +71,30 @@ class FakeHA:
             raise KeyError(entity_or_alias)
         return self.states[entity_or_alias]
 
+    async def get_states(self) -> list[dict[str, Any]]:
+        self.get_states_calls += 1
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        return [
+            {"entity_id": entity_id, **payload}
+            for entity_id, payload in self.states.items()
+            if not self.errors or entity_id not in self.errors
+        ]
+
     async def call_service(self, *args: object, **kwargs: object) -> None:
         self.call_service_called = True
         raise AssertionError("readonly commands must not call services")
+
+
+class FailingTransport(FakeTransport):
+    def __init__(self, failures: list[BaseException]) -> None:
+        super().__init__()
+        self.failures = list(failures)
+
+    async def send(self, message: OutboundMessage) -> None:
+        if self.failures:
+            raise self.failures.pop(0)
+        await super().send(message)
 
 
 def state(value: str, *, unit: str | None = None, name: str | None = None) -> dict[str, Any]:
@@ -155,11 +185,11 @@ def _service(
     role: Role = Role.readonly,
     normalized_audit: bool = False,
     health: BridgeHealthState | None = None,
+    response_max_bytes: int | None = None,
+    transport: FakeTransport | None = None,
 ) -> tuple[BridgeService, FakeTransport, sqlite3.Connection]:
     connection = connect_database(str(tmp_path / f"{transport_name}.db"))
     registry = build_registry()
-    sender_id = TELEGRAM_SENDER_ID if transport_name == "telegram" else SENDER_ID
-    room_id = TELEGRAM_ROOM_ID if transport_name == "telegram" else f"{transport_name}:channel:1"
     legacy = AuditRepository(connection)
     audit_flow = None
     if normalized_audit:
@@ -188,10 +218,19 @@ def _service(
     router = CommandRouter(
         registry=registry,
         authorizer=Authorizer(
-            {sender_id: AuthorizedUser(sender_id, "tester", role)},
+            {
+                SENDER_ID: AuthorizedUser(SENDER_ID, "tester", role),
+                TELEGRAM_SENDER_ID: AuthorizedUser(TELEGRAM_SENDER_ID, "telegram tester", role),
+            },
             room_policies={
-                room_id: RoomPolicy(
-                    room_id=room_id,
+                "homeassistant-meshcore:channel:1": RoomPolicy(
+                    room_id="homeassistant-meshcore:channel:1",
+                    enabled=True,
+                    minimum_role=Role.readonly,
+                    allow_commands=True,
+                ),
+                TELEGRAM_ROOM_ID: RoomPolicy(
+                    room_id=TELEGRAM_ROOM_ID,
                     enabled=True,
                     minimum_role=Role.readonly,
                     allow_commands=True,
@@ -203,7 +242,7 @@ def _service(
         services=services,
         prefix="!",
     )
-    transport = FakeTransport()
+    transport = transport or FakeTransport()
     return (
         BridgeService(
             transport=transport,
@@ -213,6 +252,11 @@ def _service(
             rate_limiter=RateLimiter(max_commands=20, window_seconds=60),
             channel_index=1,
             bridge_health=health,
+            meshcore_response_max_bytes=response_max_bytes
+            if response_max_bytes is not None
+            else 3900
+            if transport_name == "telegram"
+            else 180,
         ),
         transport,
         connection,
@@ -266,7 +310,36 @@ def test_alarma_armed_away_and_compact(tmp_path) -> None:
     assert "Alarm:away" in text
     assert "Doors:0 open" in text
     assert "Motion:none" in text
-    assert len(text) < 180
+    assert len(text.encode("utf-8")) <= 180
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["!alarma", "!casa", "!servers", "!servers principal", "!red"],
+)
+def test_home_status_meshcore_responses_fit_default_utf8_budget(
+    tmp_path,
+    command: str,
+) -> None:
+    service, _, _ = _service(tmp_path, ha=FakeHA(_states()))
+
+    text = _run(service, command)
+
+    assert len(text.encode("utf-8")) <= 180
+    assert text.encode("utf-8").decode("utf-8") == text
+
+
+def test_home_status_meshcore_unicode_truncates_on_utf8_boundary(tmp_path) -> None:
+    states = _states()
+    states["alarm_control_panel.configured"] = state("triggered")
+    states["binary_sensor.front_door"] = state("on", name="Entrada áéíóú" * 12)
+    service, _, _ = _service(tmp_path, ha=FakeHA(states), response_max_bytes=80)
+
+    text = _run(service, "!alarma")
+
+    assert len(text.encode("utf-8")) <= 80
+    assert text.encode("utf-8").decode("utf-8") == text
+    assert text.endswith("...") or "ALARM" in text
 
 
 @pytest.mark.parametrize(
@@ -326,6 +399,66 @@ def test_casa_complete_summary(tmp_path) -> None:
     assert "Internet: online" in text
     assert "Servidores: 1/2 online" in text
     assert "UPS: 94 %" in text
+
+
+def test_casa_uses_single_bulk_homeassistant_state_request(tmp_path) -> None:
+    ha = FakeHA(_states())
+    service, _, _ = _service(tmp_path, ha=ha, transport_name="telegram")
+
+    text = _run(service, "!casa", transport="telegram")
+
+    assert "Casa" in text
+    assert ha.get_states_calls == 1
+    assert ha.get_state_calls == 0
+
+
+def test_casa_does_not_create_connection_explosion_for_typical_config(tmp_path) -> None:
+    entries = tuple(
+        HomeStatusServerEntryConfig(
+            alias=f"srv{i}",
+            name=f"Servidor {i}",
+            availability_entity=f"binary_sensor.srv{i}",
+        )
+        for i in range(5)
+    )
+    home_status = _home_status_config()
+    config = HomeStatusConfig(
+        alarm=HomeStatusAlarmConfig(
+            entity_id=home_status.alarm.entity_id,
+            door_entities=tuple(f"binary_sensor.door{i}" for i in range(5)),
+            motion_entities=home_status.alarm.motion_entities,
+        ),
+        home=HomeStatusHomeConfig(
+            person_entities=("person.one", "person.two"),
+            presence_entities=home_status.home.presence_entities,
+            door_entities=tuple(f"binary_sensor.door{i}" for i in range(5)),
+            light_entities=tuple(f"light.light{i}" for i in range(5)),
+            temperature_entity=home_status.home.temperature_entity,
+            humidity_entity=home_status.home.humidity_entity,
+            ups_battery_entity=home_status.home.ups_battery_entity,
+        ),
+        servers=HomeStatusServersConfig(entries=entries),
+        network=home_status.network,
+    )
+    states = _states()
+    states.update({f"binary_sensor.door{i}": state("off") for i in range(5)})
+    states.update({f"light.light{i}": state("on" if i < 2 else "off") for i in range(5)})
+    states.update({f"binary_sensor.srv{i}": state("on") for i in range(5)})
+    states["person.one"] = state("not_home")
+    states["person.two"] = state("home")
+    ha = FakeHA(states)
+    service, _, _ = _service(
+        tmp_path,
+        home_status=config,
+        ha=ha,
+        transport_name="telegram",
+    )
+
+    text = _run(service, "!casa", transport="telegram")
+
+    assert "Casa" in text
+    assert ha.get_states_calls == 1
+    assert ha.get_state_calls == 0
 
 
 def test_casa_partial_failures_keep_available_data(tmp_path) -> None:
@@ -477,6 +610,72 @@ def test_commands_work_from_telegram_and_do_not_cross_transports(tmp_path) -> No
 
     assert text.startswith("Casa")
     assert transport.sent[-1].destination == TELEGRAM_SENDER_ID
+
+
+def test_telegram_home_status_response_is_not_limited_by_lora_budget(tmp_path) -> None:
+    entries = tuple(
+        HomeStatusServerEntryConfig(
+            alias=f"srv{i}",
+            name=f"Servidor de laboratorio {i}",
+            availability_entity=f"binary_sensor.srv{i}",
+        )
+        for i in range(12)
+    )
+    states = {f"binary_sensor.srv{i}": state("on") for i in range(12)}
+    service, _, _ = _service(
+        tmp_path,
+        home_status=HomeStatusConfig(servers=HomeStatusServersConfig(entries=entries)),
+        ha=FakeHA(states),
+        transport_name="telegram",
+    )
+
+    text = _run(service, "!servers", transport="telegram")
+
+    assert len(text.encode("utf-8")) > 180
+    assert "Servidor de laboratorio 11: online" in text
+
+
+@pytest.mark.parametrize("command", ["!alarma", "!casa", "!servers", "!servers principal", "!red"])
+def test_home_status_meshcore_response_timeout_does_not_stop_next_command(
+    tmp_path,
+    command: str,
+) -> None:
+    health = BridgeHealthState()
+    transport = FailingTransport([TimeoutError()])
+    service, transport, _ = _service(
+        tmp_path,
+        ha=FakeHA(_states()),
+        health=health,
+        transport=transport,
+    )
+
+    first = asyncio.run(
+        service.process_message(_message(command, message_id=f"timeout-{command}"))
+    )
+    second = asyncio.run(service.process_message(_message("!ping", message_id=f"next-{command}")))
+
+    assert first is not None
+    assert second is not None
+    assert second.text == "pong"
+    assert [message.text for message in transport.sent] == ["pong"]
+    assert health.snapshot().last_failure_reason == "transport_timeout"
+
+
+def test_telegram_command_still_works_after_meshcore_response_timeout(tmp_path) -> None:
+    health = BridgeHealthState()
+    transport = FailingTransport([TimeoutError()])
+    service, _, _ = _service(
+        tmp_path,
+        ha=FakeHA(_states()),
+        health=health,
+        transport=transport,
+    )
+
+    asyncio.run(service.process_message(_message("!red", message_id="timeout-red")))
+    telegram_text = _run(service, "!casa", transport="telegram")
+
+    assert telegram_text.startswith("Casa")
+    assert health.snapshot().last_failure_reason == "transport_timeout"
 
 
 @pytest.mark.parametrize("role", [Role.readonly, Role.home, Role.operator, Role.admin])

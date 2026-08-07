@@ -80,7 +80,7 @@ async def red(context: CommandContext, args: list[str]) -> str:
             f"HA:{ha_state} MC:{mc_state} TG:{tg_state}",
             f"T2M:{t2m} M2T:{m2t}",
         ]
-        return fit_lora("\n".join(lines))
+        return fit_lora("\n".join(lines), max_bytes=services.meshcore_max_bytes)
 
     lines = ["Red"]
     if internet is not None:

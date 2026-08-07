@@ -9,7 +9,7 @@ from meshcore_control.bridge_health import BridgeHealthState, relative_time
 from meshcore_control.commands.registry import CommandContext
 from meshcore_control.config import AppConfig
 
-_LORA_LIMIT = 480
+_DEFAULT_LORA_LIMIT_BYTES = 180
 _ALARM_LABELS = {
     "disarmed": ("desarmada", "dis"),
     "armed_home": ("armada en casa", "home"),
@@ -32,6 +32,7 @@ class HomeStatusServices:
     reader: HomeAssistantStateReader | None
     health: BridgeHealthState | None
     compact: bool
+    meshcore_max_bytes: int
 
 
 def services_from_context(context: CommandContext) -> HomeStatusServices:
@@ -45,6 +46,7 @@ def services_from_context(context: CommandContext) -> HomeStatusServices:
         reader=reader if isinstance(reader, HomeAssistantStateReader) else None,
         health=health if isinstance(health, BridgeHealthState) else None,
         compact=context.message.transport != "telegram",
+        meshcore_max_bytes=config.telegram.max_meshcore_message_length,
     )
 
 
@@ -175,12 +177,27 @@ def health_relative(value: datetime | None, *, compact: bool) -> str:
     return _with_ago_es(rendered)
 
 
-def fit_lora(text: str, max_chars: int = _LORA_LIMIT) -> str:
+def fit_lora(text: str, max_bytes: int = _DEFAULT_LORA_LIMIT_BYTES) -> str:
     normalized = "\n".join(line.rstrip() for line in text.strip().splitlines())
-    if len(normalized) <= max_chars:
+    if len(normalized.encode("utf-8")) <= max_bytes:
         return normalized
     marker = "\n..."
-    return normalized[: max_chars - len(marker)].rstrip() + marker
+    marker_bytes = marker.encode("utf-8")
+    if max_bytes <= len(marker_bytes):
+        return _truncate_utf8(normalized, max_bytes)
+    body = _truncate_utf8(normalized, max_bytes - len(marker_bytes)).rstrip()
+    while body and len((body + marker).encode("utf-8")) > max_bytes:
+        body = body[:-1].rstrip()
+    return body + marker
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    if max_bytes <= 0:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
 def _with_ago_es(value: str) -> str:

@@ -59,6 +59,9 @@ class HomeAssistantStateReader:
             if entity_id and entity_id not in seen:
                 unique.append(entity_id)
                 seen.add(entity_id)
+        bulk = await self._get_states_bulk(unique)
+        if bulk is not None:
+            return bulk
         try:
             results = await asyncio.wait_for(
                 asyncio.gather(*(self.get_state(entity_id) for entity_id in unique)),
@@ -70,6 +73,39 @@ class HomeAssistantStateReader:
                 for entity_id in unique
             }
         return dict(zip(unique, results, strict=True))
+
+    async def _get_states_bulk(self, entity_ids: list[str]) -> dict[str, EntityState] | None:
+        method = getattr(self._client, "get_states", None)
+        if not callable(method):
+            return None
+        try:
+            raw_states = await asyncio.wait_for(method(), timeout=self._total_timeout_seconds)
+        except TimeoutError:
+            return {
+                entity_id: EntityState(entity_id=entity_id, status="transport_error")
+                for entity_id in entity_ids
+            }
+        except Exception:
+            return {
+                entity_id: EntityState(entity_id=entity_id, status="transport_error")
+                for entity_id in entity_ids
+            }
+        if not isinstance(raw_states, list):
+            return {
+                entity_id: EntityState(entity_id=entity_id, status="transport_error")
+                for entity_id in entity_ids
+            }
+        by_id = {
+            str(raw.get("entity_id", "")): raw
+            for raw in raw_states
+            if isinstance(raw, dict) and raw.get("entity_id")
+        }
+        return {
+            entity_id: _parse_state(entity_id, by_id[entity_id])
+            if entity_id in by_id
+            else EntityState(entity_id=entity_id, status="unknown")
+            for entity_id in entity_ids
+        }
 
 
 def _parse_state(entity_id: str, raw: dict[str, Any]) -> EntityState:

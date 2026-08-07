@@ -77,7 +77,7 @@ async def _servers_summary(
         hidden = len(rendered) - len(visible)
         if hidden > 0:
             lines.append(f"+{hidden} mas")
-        return fit_lora("\n".join(lines))
+        return fit_lora("\n".join(lines), max_bytes=services.meshcore_max_bytes)
     lines = [f"{name}: {status}" for name, status in rendered]
     lines.append(f"Total: {online}/{len(entries)} online")
     return "\n".join(lines)
@@ -126,7 +126,7 @@ async def _server_detail(
             metrics.append(f"T:{format_measurement(temperature, compact_unit=True)}")
         if metrics:
             lines.append(" ".join(metrics))
-        return fit_lora("\n".join(lines))
+        return fit_lora("\n".join(lines), max_bytes=services.meshcore_max_bytes)
     lines = [entry.name, f"Estado: {status}"]
     if cpu is not None:
         lines.append(f"CPU: {format_percent(cpu)}")
