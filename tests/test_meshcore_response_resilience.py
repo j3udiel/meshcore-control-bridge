@@ -10,7 +10,10 @@ from typing import Any
 
 import pytest
 
-from meshcore_control.adapters.homeassistant_ws import HomeAssistantWebSocketClient
+from meshcore_control.adapters.homeassistant_ws import (
+    HomeAssistantEvent,
+    HomeAssistantWebSocketClient,
+)
 from meshcore_control.app import BridgeService, _trim_lora_response
 from meshcore_control.auth.authorization import AuthorizedUser, Authorizer
 from meshcore_control.auth.roles import Role
@@ -226,6 +229,23 @@ def test_lora_truncation_does_not_split_unicode_codepoint() -> None:
     assert trimmed.encode("utf-8").decode("utf-8") == trimmed
 
 
+def test_lora_truncation_preserves_unicode_exactly_at_byte_limit() -> None:
+    text = "OK " + ("á" * 5)
+
+    trimmed = _trim_lora_response(text, max_bytes=len(text.encode("utf-8")))
+
+    assert trimmed == text
+
+
+def test_lora_truncation_handles_unicode_one_byte_over_limit() -> None:
+    text = "OK " + ("á" * 5)
+
+    trimmed = _trim_lora_response(text, max_bytes=len(text.encode("utf-8")) - 1)
+
+    assert len(trimmed.encode("utf-8")) <= len(text.encode("utf-8")) - 1
+    assert trimmed.encode("utf-8").decode("utf-8") == trimmed
+
+
 @dataclass
 class FakeConnect:
     websockets: Iterator[FakeWebSocket]
@@ -387,6 +407,54 @@ async def test_call_service_disconnect_fails_pending_command(
         await client.call_service("meshcore", "send_channel_message", {"message": "one"})
 
     assert websocket.max_concurrent_recv == 1
+
+
+@pytest.mark.asyncio
+async def test_many_sequential_call_service_operations_close_connections(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    websockets_used = [
+        FakeWebSocket(
+            [
+                *_auth_frames(),
+                {"type": "result", "id": index + 1, "success": True, "result": {}},
+            ]
+        )
+        for index in range(120)
+    ]
+    import websockets
+
+    monkeypatch.setattr(websockets, "connect", FakeConnect(iter(websockets_used)))
+    client = HomeAssistantWebSocketClient(
+        base_url="http://homeassistant.local:8123",
+        token="token",
+        timeout_seconds=0.2,
+    )
+
+    for index in range(120):
+        await client.call_service("meshcore", "send_channel_message", {"message": str(index)})
+
+    assert all(websocket.closed for websocket in websockets_used)
+    assert all(websocket.max_concurrent_recv == 1 for websocket in websockets_used)
+
+
+@pytest.mark.asyncio
+async def test_event_queue_saturation_raises_without_dropping_queued_event() -> None:
+    client = HomeAssistantWebSocketClient(
+        base_url="http://homeassistant.local:8123",
+        token="token",
+        timeout_seconds=0.2,
+    )
+    queue: asyncio.Queue[HomeAssistantEvent] = asyncio.Queue(maxsize=1)
+    first = HomeAssistantEvent(event_type="meshcore_message", data={"message": "first"})
+    second = HomeAssistantEvent(event_type="meshcore_message", data={"message": "second"})
+
+    await client._queue_event(queue, first, "test")
+    with pytest.raises(RuntimeError, match="event queue saturated"):
+        await client._queue_event(queue, second, "test")
+
+    retained = await queue.get()
+    assert retained.data["message"] == "first"
 
 
 @pytest.mark.asyncio

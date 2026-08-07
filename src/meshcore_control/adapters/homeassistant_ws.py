@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse, urlunparse
@@ -68,7 +68,7 @@ class HomeAssistantWebSocketClient:
         async for websocket in self._connect_loop():
             subscriptions: dict[int, str] = {}
             pending: dict[int, asyncio.Future[Any]] = {}
-            event_queue: asyncio.Queue[HomeAssistantEvent] = asyncio.Queue(maxsize=100)
+            event_queue: asyncio.Queue[HomeAssistantEvent] = asyncio.Queue(maxsize=1000)
             reader_task: asyncio.Task[None] | None = None
             try:
                 await self._authenticate(websocket)
@@ -173,41 +173,42 @@ class HomeAssistantWebSocketClient:
         )
 
     async def _simple_command(self, command: dict[str, Any], *, operation: str = "command") -> Any:
-        async for websocket in self._connect_loop():
-            pending: dict[int, asyncio.Future[Any]] = {}
-            reader_task: asyncio.Task[None] | None = None
+        connection = self._connect_loop()
+        pending: dict[int, asyncio.Future[Any]] = {}
+        reader_task: asyncio.Task[None] | None = None
+        try:
+            websocket = await connection.__anext__()
             await self._authenticate(websocket)
-            try:
-                reader_task = asyncio.create_task(
-                    self._reader_loop(
-                        websocket,
-                        pending,
-                        event_queue=None,
-                        subscriptions={},
-                        connection_name="command",
-                    ),
-                    name=f"ha-ws-{operation}-reader",
-                )
-                command_id, future = await self._send_command(
+            reader_task = asyncio.create_task(
+                self._reader_loop(
                     websocket,
-                    command,
                     pending,
-                    operation=operation,
-                )
-                return await self._wait_for_result(
-                    command_id,
-                    future,
-                    pending,
-                    operation=operation,
-                )
-            finally:
-                if reader_task is not None:
-                    reader_task.cancel()
-                    await asyncio.gather(reader_task, return_exceptions=True)
-                self._fail_pending(pending, HomeAssistantWebSocketCommandError("disconnected"))
-        return None
+                    event_queue=None,
+                    subscriptions={},
+                    connection_name="command",
+                ),
+                name=f"ha-ws-{operation}-reader",
+            )
+            command_id, future = await self._send_command(
+                websocket,
+                command,
+                pending,
+                operation=operation,
+            )
+            return await self._wait_for_result(
+                command_id,
+                future,
+                pending,
+                operation=operation,
+            )
+        finally:
+            if reader_task is not None:
+                reader_task.cancel()
+                await asyncio.gather(reader_task, return_exceptions=True)
+            self._fail_pending(pending, HomeAssistantWebSocketCommandError("disconnected"))
+            await connection.aclose()
 
-    async def _connect_loop(self) -> AsyncIterator[Any]:
+    async def _connect_loop(self) -> AsyncGenerator[Any]:
         try:
             import websockets
         except ImportError as exc:
@@ -339,13 +340,7 @@ class HomeAssistantWebSocketClient:
                 if payload_type == "event" and event_queue is not None:
                     event = _event_from_payload(payload, subscriptions)
                     if event is not None:
-                        try:
-                            event_queue.put_nowait(event)
-                        except asyncio.QueueFull:
-                            logger.warning(
-                                "Home Assistant WebSocket event queue full connection=%s",
-                                connection_name,
-                            )
+                        await self._queue_event(event_queue, event, connection_name)
                     continue
                 logger.debug(
                     "Home Assistant WebSocket frame ignored connection=%s type=%s",
@@ -367,6 +362,21 @@ class HomeAssistantWebSocketClient:
             if not future.done():
                 future.set_exception(exc)
         pending.clear()
+
+    async def _queue_event(
+        self,
+        event_queue: asyncio.Queue[HomeAssistantEvent],
+        event: HomeAssistantEvent,
+        connection_name: str,
+    ) -> None:
+        try:
+            await asyncio.wait_for(event_queue.put(event), timeout=1.0)
+        except TimeoutError as exc:
+            logger.warning(
+                "Home Assistant WebSocket event queue saturated connection=%s",
+                connection_name,
+            )
+            raise HomeAssistantWebSocketCommandError("event queue saturated") from exc
 
     async def _recv_json(self, websocket: Any, timeout: float | None) -> dict[str, Any]:
         receive = websocket.recv()

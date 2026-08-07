@@ -400,6 +400,20 @@ async def test_telegram_help_command_uses_command_router(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
+async def test_telegram_help_is_not_limited_to_meshcore_response_bytes(tmp_path: Path) -> None:
+    service, client, _connection = _command_service(
+        tmp_path,
+        config=_config(max_meshcore_message_length=20),
+    )
+
+    await service.process_update(_message(1181, text="!help"))
+
+    response = client.send_message_calls[0]["text"]
+    assert len(response.encode("utf-8")) > 20
+    assert "!bridge" in response
+
+
+@pytest.mark.asyncio
 async def test_telegram_estado_ha_command(tmp_path: Path) -> None:
     service, client, _connection = _command_service(tmp_path, ha=FakeHA())
 
