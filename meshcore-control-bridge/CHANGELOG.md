@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.1.21
+
+- Prevent MeshCore response timeouts from stopping the App.
+- Keep `BridgeService` alive after expected transport/service errors.
+- Improve Home Assistant WebSocket command/result correlation.
+- Use one reader task per WebSocket connection.
+- Clean pending command waiters on timeout, cancellation, and disconnect.
+- Prevent MeshCore event loss during WebSocket queue pressure.
+- Close command WebSocket connections deterministically.
+- Enforce MeshCore response size in UTF-8 bytes.
+- Keep `!help` within the configured MeshCore transport budget.
+- Keep Telegram and the bridge running after a failed MeshCore command
+  response.
+- Continue processing the next MeshCore message after a response failure.
+- Report service timeouts through safe health reasons and best-effort audit.
+- Do not automatically retry ambiguous send timeouts.
+- Does not change authorization, forwarding, echo prevention, write commands,
+  or USB release work.
+
 ## 0.1.20
 
 - Add temporary admin-only `!bridge` runtime controls for Telegram to MeshCore

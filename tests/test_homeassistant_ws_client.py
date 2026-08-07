@@ -183,11 +183,11 @@ def test_websocket_fire_event_uses_homeassistant_command() -> None:
             )
             await client.fire_event(
                 "meshcore_control_bridge_health",
-                {"status": "ok", "version": "0.1.20"},
+                {"status": "ok", "version": "0.1.21"},
             )
 
         assert received["type"] == "fire_event"
         assert received["event_type"] == "meshcore_control_bridge_health"
-        assert received["event_data"] == {"status": "ok", "version": "0.1.20"}
+        assert received["event_data"] == {"status": "ok", "version": "0.1.21"}
 
     asyncio.run(scenario())
