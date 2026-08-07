@@ -7,26 +7,50 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-08-07
+
 ### Added
 
-- Add readonly `!alarma`, `!casa`, `!servers`, and `!red` commands for
-  allowlisted Home Assistant status entities.
-- Add optional `home_status` configuration for alarm, home, server, and network
-  status summaries.
-- Add a readonly Home Assistant state reader with bounded concurrency and
-  per-command timeouts.
+- Add readonly `!alarma` command.
+- Add readonly `!casa` command.
+- Add readonly `!servers` and `!servers <alias>`.
+- Add readonly `!red` command.
+- Add optional allowlisted `home_status` configuration.
+- Add bulk Home Assistant state reads for efficient status queries.
 
-### Security / Behavior
+### Behavior
 
-- New status commands use only operator-configured entity IDs.
-- Command text cannot supply arbitrary entity IDs, hostnames, IP addresses, or
-  services.
-- The commands do not arm alarms, toggle entities, restart servers, run shell
-  commands, or perform active external network checks.
-- Responses and normalized audit do not expose entity IDs, tokens, raw IDs,
-  pubkeys, coordinates, message text, or raw Home Assistant attributes.
-- Forwarding, echo prevention, bridge admin controls, and authorization behavior
-  remain unchanged.
+- Commands work from Telegram and MeshCore.
+- Replies remain local to the originating transport.
+- MeshCore uses compact UTF-8 byte-limited responses.
+- Telegram keeps full responses.
+- Partial Home Assistant failures degrade gracefully.
+- Unavailable entities do not automatically count as offline.
+
+### Security
+
+- Command text cannot provide arbitrary entity IDs, hosts, IP addresses,
+  services, or actions.
+- Only operator-configured allowlisted entities are queried.
+- No `call_service`, shell, ping, DNS lookup, external HTTP probe, or write
+  action is introduced.
+- Responses and audit omit entity IDs, coordinates, tokens, raw IDs, pubkeys,
+  and raw Home Assistant attributes.
+
+### Reliability
+
+- Uses supported `/api/states` bulk reads to avoid connection explosion.
+- Home status commands inherit the 0.1.21 MeshCore timeout resilience.
+- Failed MeshCore responses do not stop `BridgeService` or Telegram.
+
+### Not Included
+
+- Alarm arm/disarm.
+- Entity toggle/on/off actions.
+- Server restart/shutdown.
+- IPMI actions.
+- Persistent control actions.
+- USB release work.
 
 ## [0.1.21] - 2026-08-07
 

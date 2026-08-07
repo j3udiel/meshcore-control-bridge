@@ -2,23 +2,50 @@
 
 ## Unreleased
 
+## 0.1.22
+
 ### Added
 
-- Add readonly `!alarma`, `!casa`, `!servers`, and `!red` commands backed by
-  allowlisted Home Assistant status entities.
-- Add optional `home_status` App configuration for alarm, home, server, and
-  network summaries.
+- Add readonly `!alarma` command.
+- Add readonly `!casa` command.
+- Add readonly `!servers` and `!servers <alias>`.
+- Add readonly `!red` command.
+- Add optional allowlisted `home_status` configuration.
+- Add bulk Home Assistant state reads for efficient status queries.
 
-### Security / Behavior
+### Behavior
 
-- New status commands never accept arbitrary entity IDs, hosts, IPs, services, or
-  actions from message text.
-- No alarm, entity, server, shell, DNS, ping, or HTTP write/probe behavior is
-  added.
-- Responses and audit stay redacted and omit configured entity IDs and raw
-  identifiers.
-- Forwarding, echo prevention, bridge admin controls, and authorization remain
-  unchanged.
+- Commands work from Telegram and MeshCore.
+- Replies remain local to the originating transport.
+- MeshCore uses compact UTF-8 byte-limited responses.
+- Telegram keeps full responses.
+- Partial Home Assistant failures degrade gracefully.
+- Unavailable entities do not automatically count as offline.
+
+### Security
+
+- Command text cannot provide arbitrary entity IDs, hosts, IP addresses,
+  services, or actions.
+- Only operator-configured allowlisted entities are queried.
+- No `call_service`, shell, ping, DNS lookup, external HTTP probe, or write
+  action is introduced.
+- Responses and audit omit entity IDs, coordinates, tokens, raw IDs, pubkeys,
+  and raw Home Assistant attributes.
+
+### Reliability
+
+- Uses supported `/api/states` bulk reads to avoid connection explosion.
+- Home status commands inherit the 0.1.21 MeshCore timeout resilience.
+- Failed MeshCore responses do not stop `BridgeService` or Telegram.
+
+### Not Included
+
+- Alarm arm/disarm.
+- Entity toggle/on/off actions.
+- Server restart/shutdown.
+- IPMI actions.
+- Persistent control actions.
+- USB release work.
 
 ## 0.1.21
 

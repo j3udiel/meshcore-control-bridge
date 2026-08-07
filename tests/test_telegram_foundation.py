@@ -1302,5 +1302,5 @@ async def test_bridge_command_works_from_telegram_without_forwarding(tmp_path: P
 
     assert decision.reason == "command"
     assert len(client.send_message_calls) == 1
-    assert "Version: 0.1.21" in client.send_message_calls[0]["text"]
+    assert "Version: 0.1.22" in client.send_message_calls[0]["text"]
     assert meshcore.sent == []
