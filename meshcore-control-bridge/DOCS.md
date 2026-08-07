@@ -218,11 +218,11 @@ The App configuration references:
 ghcr.io/j3udiel/meshcore-control-bridge
 ```
 
-The App version in `config.yaml` selects the image tag. For version `0.1.21`,
+The App version in `config.yaml` selects the image tag. For version `0.1.22`,
 Supervisor pulls:
 
 ```text
-ghcr.io/j3udiel/meshcore-control-bridge:0.1.21
+ghcr.io/j3udiel/meshcore-control-bridge:0.1.22
 ```
 
 If the image has not been published yet, installation from the public repository
@@ -434,7 +434,7 @@ status fields:
 {
   "schema_version": 1,
   "status": "ok",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "uptime_seconds": 123,
   "meshcore": "connected",
   "telegram": "connected",
