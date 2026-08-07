@@ -87,6 +87,125 @@ you choose the read-only Home Assistant temperature entity to expose. The
 humidity entity is optional. The command preserves the units reported by Home
 Assistant and returns `N/D` when an entity is unavailable or cannot be read.
 
+## Readonly Home Status Commands
+
+The commands `!alarma`, `!casa`, `!servers`, and `!red` expose a compact
+readonly status view from Home Assistant. They work from MeshCore and Telegram
+through the same command router and always reply only on the originating
+transport.
+
+These commands only query entity IDs configured by the operator in
+`home_status`. Message text cannot provide an entity ID, hostname, IP address,
+service name, or shell command. The App does not arm or disarm alarms, toggle
+entities, restart hosts, run pings, perform DNS lookups, or make external HTTP
+checks for these commands.
+
+Example configuration:
+
+```yaml
+home_status:
+  alarm:
+    entity_id: alarm_control_panel.home
+    door_entities:
+      - binary_sensor.front_door_contact
+    motion_entities:
+      - binary_sensor.hall_motion
+
+  home:
+    person_entities:
+      - person.primary
+    presence_entities:
+      - binary_sensor.home_presence
+    door_entities:
+      - binary_sensor.front_door_contact
+    light_entities:
+      - light.kitchen
+    temperature_entity: sensor.home_temperature
+    humidity_entity: sensor.home_humidity
+    ups_battery_entity: sensor.ups_battery
+
+  servers:
+    entries:
+      - alias: principal
+        name: Servidor principal
+        availability_entity: binary_sensor.server_online
+        cpu_entity: sensor.server_cpu
+        memory_entity: sensor.server_memory
+        disk_entity: sensor.server_disk
+        temperature_entity: sensor.server_temperature
+
+  network:
+    internet_entity: binary_sensor.internet_online
+    router_entity: binary_sensor.router_online
+    dns_entity: binary_sensor.dns_ok
+    home_assistant_entity: ""
+    additional_entities: []
+```
+
+Server aliases must be unique and use only lowercase letters, numbers, `-`, and
+`_`. Empty sections are allowed; the corresponding command responds that it is
+not configured instead of failing.
+
+Example responses:
+
+```text
+!alarma
+Alarma: armada fuera
+Puertas: 1 cerradas, 0 abiertas
+Movimiento: sin detectar
+Último cambio: hace 12m
+
+!casa
+Casa
+Alarma: armada fuera
+Presencia: nadie
+Puertas: cerradas
+Luces: 2 encendidas
+Temperatura: 23.4 °C
+Humedad: 48 %
+Internet: online
+Servidores: 1/2 online
+UPS: 94 %
+
+!servers
+Servidor principal: online
+NAS: offline
+Total: 1/2 online
+
+!red
+Red
+Internet: online
+Router: online
+DNS: OK
+Home Assistant: conectado
+MeshCore: conectado
+Telegram: conectado
+Último TG->MC: hace 2m
+Último MC->TG: hace 5m
+```
+
+MeshCore receives shorter LoRa-friendly forms, for example:
+
+```text
+Alarm:away
+Doors:0 open
+Motion:none
+Ago:12m
+
+Casa A:away P:none
+D:0 L:2 T:23.4C
+Net:on S:1/2 UPS:94%
+
+Net:on RTR:on DNS:ok
+HA:on MC:on TG:on
+T2M:2m M2T:5m
+```
+
+Responses never include configured entity IDs, Telegram IDs, MeshCore sender
+IDs, pubkeys, tokens, message IDs, command contents, coordinates, or raw Home
+Assistant attributes. Normalized audit stores only the command name, result,
+safe failure reason, and aggregate entity counts.
+
 You do not configure `HA_TOKEN` for this App. Home Assistant provides
 `SUPERVISOR_TOKEN` automatically, and the App uses that token only for the
 internal Home Assistant API proxy.

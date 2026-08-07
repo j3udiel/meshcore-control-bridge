@@ -190,6 +190,7 @@ class AuditFlow:
         duration_ms: int,
         error: str | None,
         registered_command: bool,
+        extra_metadata: dict[str, object] | None = None,
     ) -> AuditTrail:
         if result not in COMMAND_RESULTS:
             raise ValueError("invalid command result")
@@ -214,7 +215,7 @@ class AuditFlow:
             command_name=command if registered_command else None,
             command_result=result,
             duration_ms=duration_ms,
-            metadata={"command_result": result},
+            metadata={"command_result": result, **(extra_metadata or {})},
         )
 
         def record_command() -> None:

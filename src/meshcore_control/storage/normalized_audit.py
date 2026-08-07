@@ -93,6 +93,9 @@ METADATA_ALLOWLIST: dict[NormalizedAuditEventType, frozenset[str]] = {
     NormalizedAuditEventType.COMMAND_EXECUTION: frozenset(
         {
             "command_result",
+            "entities_queried",
+            "entities_available",
+            "safe_failure_reason",
         }
     ),
     NormalizedAuditEventType.RESPONSE_SENT: frozenset(

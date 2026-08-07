@@ -11,6 +11,9 @@ configuration:
   weather_status:
     name: Estado exterior
     description: Entidades readonly opcionales de Home Assistant usadas por !exterior.
+  home_status:
+    name: Estado de casa
+    description: Entidades readonly allowlisted usadas por !alarma, !casa, !servers y !red.
   telegram:
     name: Telegram
     description: Soporte Telegram Bot API desactivado por defecto para comandos readonly y reenvio opcional de texto normal con MeshCore.

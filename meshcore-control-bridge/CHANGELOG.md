@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Added
+
+- Add readonly `!alarma`, `!casa`, `!servers`, and `!red` commands backed by
+  allowlisted Home Assistant status entities.
+- Add optional `home_status` App configuration for alarm, home, server, and
+  network summaries.
+
+### Security / Behavior
+
+- New status commands never accept arbitrary entity IDs, hosts, IPs, services, or
+  actions from message text.
+- No alarm, entity, server, shell, DNS, ping, or HTTP write/probe behavior is
+  added.
+- Responses and audit stay redacted and omit configured entity IDs and raw
+  identifiers.
+- Forwarding, echo prevention, bridge admin controls, and authorization remain
+  unchanged.
+
 ## 0.1.21
 
 - Prevent MeshCore response timeouts from stopping the App.

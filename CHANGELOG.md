@@ -7,6 +7,27 @@ versioning once releases begin.
 
 ## [Unreleased]
 
+### Added
+
+- Add readonly `!alarma`, `!casa`, `!servers`, and `!red` commands for
+  allowlisted Home Assistant status entities.
+- Add optional `home_status` configuration for alarm, home, server, and network
+  status summaries.
+- Add a readonly Home Assistant state reader with bounded concurrency and
+  per-command timeouts.
+
+### Security / Behavior
+
+- New status commands use only operator-configured entity IDs.
+- Command text cannot supply arbitrary entity IDs, hostnames, IP addresses, or
+  services.
+- The commands do not arm alarms, toggle entities, restart servers, run shell
+  commands, or perform active external network checks.
+- Responses and normalized audit do not expose entity IDs, tokens, raw IDs,
+  pubkeys, coordinates, message text, or raw Home Assistant attributes.
+- Forwarding, echo prevention, bridge admin controls, and authorization behavior
+  remain unchanged.
+
 ## [0.1.21] - 2026-08-07
 
 ### Fixed
